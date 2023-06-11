@@ -25,7 +25,7 @@
  */
 
 #include "py/mpconfig.h"
-#ifdef MICROPY_PY_SOCKET
+#ifdef MICROPY_PY_USOCKET_ZEPHYR
 
 #include "py/runtime.h"
 #include "py/stream.h"
@@ -458,6 +458,7 @@ STATIC const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
 
     { MP_ROM_QSTR(MP_QSTR_SOCK_STREAM), MP_ROM_INT(SOCK_STREAM) },
     { MP_ROM_QSTR(MP_QSTR_SOCK_DGRAM), MP_ROM_INT(SOCK_DGRAM) },
+    { MP_ROM_QSTR(MP_QSTR_SOCK_RAW), MP_ROM_INT(SOCK_RAW) },
 
     { MP_ROM_QSTR(MP_QSTR_SOL_SOCKET), MP_ROM_INT(1) },
     { MP_ROM_QSTR(MP_QSTR_SO_REUSEADDR), MP_ROM_INT(2) },
@@ -475,4 +476,4 @@ const mp_obj_module_t mp_module_socket = {
 
 MP_REGISTER_EXTENSIBLE_MODULE(MP_QSTR_socket, mp_module_socket);
 
-#endif // MICROPY_PY_SOCKET
+#endif // MICROPY_PY_USOCKET_ZEPHYR

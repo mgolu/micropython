@@ -72,8 +72,18 @@
 #define MICROPY_PY_STRUCT           (0)
 #ifdef CONFIG_NETWORKING
 // If we have networking, we likely want errno comfort
-#define MICROPY_PY_ERRNO            (1)
-#define MICROPY_PY_SOCKET           (1)
+#define MICROPY_PY_UERRNO           (1)
+#define MICROPY_PY_USOCKET_ZEPHYR   (1)
+#endif
+#ifdef CONFIG_WIFI
+extern const struct _mp_obj_type_t zephyr_network_wlan_type;
+#define MICROPY_PY_NETWORK          (1)
+#define MICROPY_PY_NETWORK_WLAN     (1)
+#ifndef MICROPY_PY_NETWORK_HOSTNAME_DEFAULT
+#define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT "zephyr-net"
+#endif
+#define MICROPY_PY_NETWORK_INCLUDEFILE      "ports/zephyr/modnetwork.h"
+#define MICROPY_PY_NETWORK_MODULE_GLOBALS_INCLUDEFILE   "ports/zephyr/modnetwork_globals.h"
 #endif
 #ifdef CONFIG_BT
 #define MICROPY_PY_BLUETOOTH        (1)
