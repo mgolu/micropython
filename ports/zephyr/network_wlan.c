@@ -292,7 +292,6 @@ STATIC mp_obj_t network_wlan_connect(size_t n_args, const mp_obj_t *pos_args, mp
         mp_raise_ValueError(MP_ERROR_TEXT("invalid channel number"));
     }
 
-
     static struct wifi_connect_req_params cnx_params;
 
     size_t len;
