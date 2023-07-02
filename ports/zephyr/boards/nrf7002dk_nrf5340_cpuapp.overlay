@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2023 Mariano Goluboff
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+ / {
+	chosen {
+		nordic,pm-ext-flash = &mx25r64;
+	};
+};
+
+ /delete-node/ &storage_partition;
+
+ &mx25r64 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		storage_partition: partition@0 {
+			label = "storage";
+			reg = <0x0 0x800000>;
+		};
+	};
+};
