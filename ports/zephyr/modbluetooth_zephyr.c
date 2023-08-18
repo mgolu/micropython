@@ -39,7 +39,7 @@
 #include <zephyr/bluetooth/conn.h>
 #include "extmod/modbluetooth.h"
 
-//#define DEBUG_printf(...) // printk("BLE: " __VA_ARGS__)
+#define DEBUG_printf(...) // printk("BLE: " __VA_ARGS__)
 
 #define BLE_HCI_SCAN_ITVL_MIN 0x10
 #define BLE_HCI_SCAN_ITVL_MAX 0xffff
@@ -70,8 +70,6 @@ typedef struct _mp_bluetooth_zephyr_root_pointers_t {
     struct bt_gatt_service *services[MP_BLUETOOTH_ZEPHYR_MAX_SERVICES];
 
     struct bt_conn *connections[CONFIG_BT_MAX_CONN];
-
-    struct bt_gatt_indicate_params *zephyr_indicate_params;
 } mp_bluetooth_zephyr_root_pointers_t;
 
 STATIC int mp_bluetooth_zephyr_ble_state;
@@ -198,7 +196,6 @@ int mp_bluetooth_init(void) {
         zephyr_connection_callbacks.disconnected = zephyr_disconnected_callback;
         bt_conn_cb_register(&zephyr_connection_callbacks);
     }
-    MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params = NULL;
     mp_bluetooth_zephyr_ble_state = MP_BLUETOOTH_ZEPHYR_BLE_STATE_ACTIVE;
 
     DEBUG_printf("mp_bluetooth_init: ready\n");
@@ -647,7 +644,6 @@ STATIC void indicate_complete(struct bt_conn *conn, struct bt_gatt_indicate_para
 
 STATIC void free_indicate_params(struct bt_gatt_indicate_params *params) {
     m_del(struct bt_gatt_indicate_params, params, 1);
-    MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params = NULL;
 }
 
 int mp_bluetooth_gatts_notify_indicate(uint16_t conn_handle, uint16_t value_handle, int gatts_op, const uint8_t *value, size_t value_len) {
@@ -681,17 +677,14 @@ int mp_bluetooth_gatts_notify_indicate(uint16_t conn_handle, uint16_t value_hand
                 break;
             case MP_BLUETOOTH_GATTS_OP_INDICATE:
             {
-                if (MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params != NULL) {
-                    return MP_EBUSY;
-                }
-                MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params = m_new(struct bt_gatt_indicate_params, 1);
-                memset(MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params, 0, sizeof(struct bt_gatt_indicate_params));
-                MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params[0].attr = attr;
-                MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params[0].data = value;
-                MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params[0].len = value_len;
-                MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params[0].func = indicate_complete;
-                MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params[0].destroy = free_indicate_params;
-                bt_gatt_indicate(conn, MP_STATE_PORT(bluetooth_zephyr_root_pointers)->zephyr_indicate_params);
+                struct bt_gatt_indicate_params *zephyr_indicate_params = m_new(struct bt_gatt_indicate_params, 1);
+                memset(zephyr_indicate_params, 0, sizeof(struct bt_gatt_indicate_params));
+                zephyr_indicate_params->attr = attr;
+                zephyr_indicate_params->data = value;
+                zephyr_indicate_params->len = value_len;
+                zephyr_indicate_params->func = indicate_complete;
+                zephyr_indicate_params->destroy = free_indicate_params;
+                bt_gatt_indicate(conn, zephyr_indicate_params);
                 break;
             }
 
