@@ -26,6 +26,7 @@
 #ifndef MICROPY_INCLUDED_ZEPHYR_MODNETWORK_H
 #define MICROPY_INCLUDED_ZEPHYR_MODNETWORK_H
 
+#ifdef MICROPY_PY_NETWORK_WLAN
 #include <zephyr/net/wifi.h>
 #include "py/ringbuf.h"
 
@@ -41,8 +42,7 @@ typedef struct _wlan_if_obj_t {
     int if_id;
     mp_obj_network_wlan_settings_t *settings;
 } wlan_if_obj_t;
-
-MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);
+#endif // MICROPY_PY_NETWORK_WLAN
 
 void usocket_events_deinit(void);
 

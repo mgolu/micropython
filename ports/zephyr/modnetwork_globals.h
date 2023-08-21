@@ -1,4 +1,4 @@
-{ MP_ROM_QSTR(MP_QSTR___init__), MP_ROM_PTR(&zephyr_network_initialize_obj) },
+//{ MP_ROM_QSTR(MP_QSTR___init__), MP_ROM_PTR(&zephyr_network_initialize_obj) },
 
 #if MICROPY_PY_NETWORK_WLAN
 { MP_ROM_QSTR(MP_QSTR_WLAN), MP_ROM_PTR(&zephyr_network_wlan_type) },
@@ -25,4 +25,8 @@
 { MP_ROM_QSTR(MP_QSTR_STAT_IDLE), MP_ROM_INT(WIFI_STATE_DISCONNECTED)},
 { MP_ROM_QSTR(MP_QSTR_STAT_CONNECTING), MP_ROM_INT(WIFI_STATE_AUTHENTICATING)},
 { MP_ROM_QSTR(MP_QSTR_STAT_GOT_IP), MP_ROM_INT(WIFI_STATE_COMPLETED)},
+#endif // MICROPY_PY_NETWORK_WLAN
+
+#if MICROPY_PY_NETWORK_NRF91
+{ MP_ROM_QSTR(MP_QSTR_CELL), MP_ROM_PTR(&zephyr_network_cell_type)},
 #endif

@@ -110,16 +110,27 @@
 #define MICROPY_PY_UERRNO           (1)
 #define MICROPY_PY_USOCKET_ZEPHYR   (1)
 #endif
+
 #ifdef CONFIG_WIFI
 extern const struct _mp_obj_type_t zephyr_network_wlan_type;
 #define MICROPY_PY_NETWORK          (1)
 #define MICROPY_PY_NETWORK_WLAN     (1)
+#endif
+
+#ifdef CONFIG_SOC_SERIES_NRF91X
+extern const struct _mp_obj_type_t zephyr_network_cell_type;
+#define MICROPY_PY_NETWORK          (1)
+#define MICROPY_PY_NETWORK_NRF91    (1)
+#endif
+
+#if MICROPY_PY_NETWORK
 #ifndef MICROPY_PY_NETWORK_HOSTNAME_DEFAULT
 #define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT "zephyr-net"
 #endif
 #define MICROPY_PY_NETWORK_INCLUDEFILE      "ports/zephyr/modnetwork.h"
 #define MICROPY_PY_NETWORK_MODULE_GLOBALS_INCLUDEFILE   "ports/zephyr/modnetwork_globals.h"
 #endif
+
 #ifdef CONFIG_BT
 #define MICROPY_PY_BUILTINS_MEMORYVIEW (1)
 #define MICROPY_PY_BLUETOOTH (1)
