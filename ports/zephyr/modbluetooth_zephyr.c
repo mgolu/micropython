@@ -73,7 +73,11 @@ typedef struct _mp_bluetooth_zephyr_root_pointers_t {
 } mp_bluetooth_zephyr_root_pointers_t;
 
 STATIC int mp_bluetooth_zephyr_ble_state;
-STATIC struct bt_conn_cb zephyr_connection_callbacks;
+STATIC struct bt_conn_cb zephyr_connection_cb;
+#if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+STATIC struct bt_conn_auth_cb zephyr_conn_auth_cb;
+STATIC struct bt_conn_auth_info_cb zephyr_conn_auth_info_cb;
+#endif // MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
 
 #if MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE
 STATIC int mp_bluetooth_zephyr_gap_scan_state;
@@ -168,6 +172,33 @@ STATIC void zephyr_disconnected_callback(struct bt_conn *conn, uint8_t reason) {
     bt_conn_unref(conn);
 }
 
+#if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+STATIC void zephyr_security_changed_cb(struct bt_conn *conn, bt_security_t level, enum bt_security_err err) {
+    if (err != BT_SECURITY_ERR_SUCCESS) {
+        return; // TODO: handle event for unsuccessful pairing
+    }
+    bool encrypted, authenticated, bonded = false;
+    uint8_t key_size = 0;
+    switch (level) {
+        case BT_SECURITY_L0:
+        case BT_SECURITY_L1:
+            break;
+        case BT_SECURITY_L4:
+        case BT_SECURITY_L3:
+            authenticated = true;
+        case BT_SECURITY_L2:
+            encrypted = true;
+            break;
+    }
+    struct bt_conn_info info;
+    if (encrypted) {
+        bt_conn_get_info(conn, &info);
+        key_size = info.security.enc_key_size;
+    }
+    mp_bluetooth_gatts_on_encryption_update(bt_conn_index(conn), encrypted, authenticated, bonded, key_size);
+}
+#endif // MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+
 int mp_bluetooth_init(void) {
     DEBUG_printf("mp_bluetooth_init\n");
 
@@ -192,9 +223,12 @@ int mp_bluetooth_init(void) {
         if (ret) {
             return bt_err_to_errno(ret);
         }
-        zephyr_connection_callbacks.connected = zephyr_connected_callback;
-        zephyr_connection_callbacks.disconnected = zephyr_disconnected_callback;
-        bt_conn_cb_register(&zephyr_connection_callbacks);
+        zephyr_connection_cb.connected = zephyr_connected_callback;
+        zephyr_connection_cb.disconnected = zephyr_disconnected_callback;
+#if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+        zephyr_connection_cb.security_changed = zephyr_security_changed_cb;
+#endif
+        bt_conn_cb_register(&zephyr_connection_cb);
     }
     mp_bluetooth_zephyr_ble_state = MP_BLUETOOTH_ZEPHYR_BLE_STATE_ACTIVE;
 
@@ -773,6 +807,95 @@ int mp_bluetooth_gap_peripheral_connect_cancel(void) {
 }
 
 #endif // MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE
+
+#if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+int mp_bluetooth_gap_pair(uint16_t conn_handle) {
+    DEBUG_printf("mp_bluetooth_gap_pair: conn_handle=%d\n", conn_handle);
+    // TODO: handle initiation from micropython side
+    return -1;
+}
+
+int mp_bluetooth_gap_passkey(uint16_t conn_handle, uint8_t action, mp_int_t passkey) {
+    struct bt_conn *conn = NULL;
+    if (conn_handle >= CONFIG_BT_MAX_CONN) {
+        return MP_EINVAL;
+    }
+    conn = MP_STATE_PORT(bluetooth_zephyr_root_pointers)->connections[conn_handle];
+    switch (action) {
+        case MP_BLUETOOTH_PASSKEY_ACTION_INPUT:
+            bt_conn_auth_passkey_entry(conn, passkey);
+            break;
+        case MP_BLUETOOTH_PASSKEY_ACTION_NUMERIC_COMPARISON: {
+            if (passkey != 0) {
+                bt_conn_auth_passkey_confirm(conn);
+            } else {
+                bt_conn_auth_cancel(conn);
+            }
+            break;
+        }
+        default: {
+            return MP_EINVAL;
+        }
+    }
+    return 0;
+}
+
+void mp_bluetooth_set_bonding(bool enabled) {
+    bt_set_bondable(enabled);
+}
+
+void mp_bluetooth_set_mitm_protection(bool enabled) {
+    // TODO
+}
+
+void mp_bluetooth_set_le_secure(bool enabled) {
+    // TODO
+}
+
+STATIC void zephyr_passkey_display(struct bt_conn *conn, unsigned int passkey) {
+    DEBUG_printf("mp_bluetooth_passkey_display: passkey=%d\n", passkey);
+    mp_bluetooth_gap_on_passkey_action(bt_conn_index(conn), MP_BLUETOOTH_PASSKEY_ACTION_DISPLAY, passkey);
+}
+
+STATIC void zephyr_passkey_entry(struct bt_conn *conn) {
+    DEBUG_printf("mp_bluetooth_passkey_entry\n");
+    mp_bluetooth_gap_on_passkey_action(bt_conn_index(conn), MP_BLUETOOTH_PASSKEY_ACTION_INPUT, 0);
+}
+
+STATIC void zephyr_passkey_confirm(struct bt_conn *conn, unsigned int passkey) {
+    DEBUG_printf("mp_bluetooth_passkey_confirm: passkey=%d\n", passkey);
+    mp_bluetooth_gap_on_passkey_action(bt_conn_index(conn), MP_BLUETOOTH_PASSKEY_ACTION_NUMERIC_COMPARISON, passkey);
+}
+
+STATIC void zephyr_cancel_display(struct bt_conn *conn) {
+    DEBUG_printf("mp_bluetooth_passkey_cancel\n");
+    mp_bluetooth_gap_on_passkey_action(bt_conn_index(conn), MP_BLUETOOTH_PASSKEY_ACTION_NONE, 0);
+}
+
+void mp_bluetooth_set_io_capability(uint8_t capability) {
+    bt_conn_auth_cb_register(NULL); // Unregister previous callback structure 
+    memset(&zephyr_conn_auth_cb, 0, sizeof(struct bt_conn_auth_cb));
+    switch (capability) {
+        case MP_BLUETOOTH_IO_CAPABILITY_KEYBOARD_DISPLAY:
+            zephyr_conn_auth_cb.passkey_entry = zephyr_passkey_entry;
+        case MP_BLUETOOTH_IO_CAPABILITY_DISPLAY_YESNO:
+            zephyr_conn_auth_cb.passkey_confirm = zephyr_passkey_confirm;
+        case MP_BLUETOOTH_IO_CAPABILITY_DISPLAY_ONLY:
+            zephyr_conn_auth_cb.passkey_display = zephyr_passkey_display;
+            zephyr_conn_auth_cb.cancel = zephyr_cancel_display;
+            break;
+        case MP_BLUETOOTH_IO_CAPABILITY_KEYBOARD_ONLY:
+            zephyr_conn_auth_cb.passkey_entry = zephyr_passkey_entry;
+            zephyr_conn_auth_cb.cancel = zephyr_cancel_display;
+            break;
+        case MP_BLUETOOTH_IO_CAPABILITY_NO_INPUT_OUTPUT:
+            return;
+        default:
+            return;
+    }
+    bt_conn_auth_cb_register(&zephyr_conn_auth_cb);
+}
+#endif // MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
 
 MP_REGISTER_ROOT_POINTER(struct _mp_bluetooth_zephyr_root_pointers_t *bluetooth_zephyr_root_pointers);
 

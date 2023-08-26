@@ -48,7 +48,7 @@
 #error l2cap channels require synchronous modbluetooth events
 #endif
 
-#if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING && !MICROPY_PY_BLUETOOTH_USE_SYNC_EVENTS
+#if !MICROPY_PY_ZEPHYR && MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING && !MICROPY_PY_BLUETOOTH_USE_SYNC_EVENTS
 #error pairing and bonding require synchronous modbluetooth events
 #endif
 
@@ -1013,8 +1013,8 @@ MP_REGISTER_EXTENSIBLE_MODULE(MP_QSTR_bluetooth, mp_module_bluetooth);
 // Helpers
 
 #if !MICROPY_PY_BLUETOOTH_USE_SYNC_EVENTS
-STATIC void ringbuf_extract(ringbuf_t *ringbuf, mp_obj_tuple_t *data_tuple, size_t n_u16, size_t n_u8, mp_obj_array_t *bytes_addr, size_t n_i8, mp_obj_bluetooth_uuid_t *uuid, mp_obj_array_t *bytes_data) {
-    assert(ringbuf_avail(ringbuf) >= n_u16 * 2 + n_u8 + (bytes_addr ? 6 : 0) + n_i8 + (uuid ? 1 : 0) + (bytes_data ? 1 : 0));
+STATIC void ringbuf_extract(ringbuf_t *ringbuf, mp_obj_tuple_t *data_tuple, size_t n_u16, size_t n_u8, mp_obj_array_t *bytes_addr, size_t n_i8, mp_obj_bluetooth_uuid_t *uuid, mp_obj_array_t *bytes_data, bool passkey) {
+    assert(ringbuf_avail(ringbuf) >= n_u16 * 2 + n_u8 + (bytes_addr ? 6 : 0) + n_i8 + (uuid ? 1 : 0) + (bytes_data ? 1 : 0) + (passkey ? 4 : 0));
     size_t j = 0;
 
     for (size_t i = 0; i < n_u16; ++i) {
@@ -1050,6 +1050,11 @@ STATIC void ringbuf_extract(ringbuf_t *ringbuf, mp_obj_tuple_t *data_tuple, size
         }
         data_tuple->items[j++] = MP_OBJ_FROM_PTR(bytes_data);
     }
+    if (passkey) {
+        uint32_t val;
+        ringbuf_get_bytes(ringbuf, (uint8_t *)&val, 4);
+        data_tuple->items[j++] = mp_obj_new_int(val);
+    }
 
     data_tuple->len = j;
 }
@@ -1080,23 +1085,23 @@ STATIC mp_obj_t bluetooth_ble_invoke_irq(mp_obj_t none_in) {
 
         if (event == MP_BLUETOOTH_IRQ_CENTRAL_CONNECT || event == MP_BLUETOOTH_IRQ_PERIPHERAL_CONNECT || event == MP_BLUETOOTH_IRQ_CENTRAL_DISCONNECT || event == MP_BLUETOOTH_IRQ_PERIPHERAL_DISCONNECT) {
             // conn_handle, addr_type, addr
-            ringbuf_extract(&o->ringbuf, data_tuple, 1, 1, &o->irq_data_addr, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 1, 1, &o->irq_data_addr, 0, NULL, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_CONNECTION_UPDATE) {
             // conn_handle, conn_interval, conn_latency, supervision_timeout, status
-            ringbuf_extract(&o->ringbuf, data_tuple, 5, 0, NULL, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 5, 0, NULL, 0, NULL, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTS_WRITE) {
             // conn_handle, value_handle
-            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTS_INDICATE_DONE) {
             // conn_handle, value_handle, status
-            ringbuf_extract(&o->ringbuf, data_tuple, 2, 1, NULL, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 2, 1, NULL, 0, NULL, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_MTU_EXCHANGED) {
             // conn_handle, mtu
-            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, NULL, false);
         #if MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE
         } else if (event == MP_BLUETOOTH_IRQ_SCAN_RESULT) {
             // addr_type, addr, adv_type, rssi, adv_data
-            ringbuf_extract(&o->ringbuf, data_tuple, 0, 1, &o->irq_data_addr, 2, NULL, &o->irq_data_data);
+            ringbuf_extract(&o->ringbuf, data_tuple, 0, 1, &o->irq_data_addr, 2, NULL, &o->irq_data_data, false);
         } else if (event == MP_BLUETOOTH_IRQ_SCAN_DONE) {
             // No params required.
             data_tuple->len = 0;
@@ -1104,23 +1109,31 @@ STATIC mp_obj_t bluetooth_ble_invoke_irq(mp_obj_t none_in) {
         #if MICROPY_PY_BLUETOOTH_ENABLE_GATT_CLIENT
         } else if (event == MP_BLUETOOTH_IRQ_GATTC_SERVICE_RESULT) {
             // conn_handle, start_handle, end_handle, uuid
-            ringbuf_extract(&o->ringbuf, data_tuple, 3, 0, NULL, 0, &o->irq_data_uuid, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 3, 0, NULL, 0, &o->irq_data_uuid, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTC_CHARACTERISTIC_RESULT) {
             // conn_handle, end_handle, value_handle, properties, uuid
-            ringbuf_extract(&o->ringbuf, data_tuple, 3, 1, NULL, 0, &o->irq_data_uuid, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 3, 1, NULL, 0, &o->irq_data_uuid, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTC_DESCRIPTOR_RESULT) {
             // conn_handle, handle, uuid
-            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, &o->irq_data_uuid, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, &o->irq_data_uuid, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTC_SERVICE_DONE || event == MP_BLUETOOTH_IRQ_GATTC_CHARACTERISTIC_DONE || event == MP_BLUETOOTH_IRQ_GATTC_DESCRIPTOR_DONE) {
             // conn_handle, status
-            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, NULL, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTC_READ_RESULT || event == MP_BLUETOOTH_IRQ_GATTC_NOTIFY || event == MP_BLUETOOTH_IRQ_GATTC_INDICATE) {
             // conn_handle, value_handle, data
-            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, &o->irq_data_data);
+            ringbuf_extract(&o->ringbuf, data_tuple, 2, 0, NULL, 0, NULL, &o->irq_data_data, false);
         } else if (event == MP_BLUETOOTH_IRQ_GATTC_READ_DONE || event == MP_BLUETOOTH_IRQ_GATTC_WRITE_DONE) {
             // conn_handle, value_handle, status
-            ringbuf_extract(&o->ringbuf, data_tuple, 3, 0, NULL, 0, NULL, NULL);
+            ringbuf_extract(&o->ringbuf, data_tuple, 3, 0, NULL, 0, NULL, NULL, false);
         #endif // MICROPY_PY_BLUETOOTH_ENABLE_GATT_CLIENT
+        #if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+        } else if (event == MP_BLUETOOTH_IRQ_ENCRYPTION_UPDATE) {
+            // conn_handle, encrypted, authenticated, bonded, key_size
+            ringbuf_extract(&o->ringbuf, data_tuple, 5, 0, NULL, 0, NULL, NULL, false);
+        } else if (event == MP_BLUETOOTH_IRQ_PASSKEY_ACTION) {
+            // conn_handle, action, passkey
+            ringbuf_extract(&o->ringbuf, data_tuple, 1, 1, NULL, 0, NULL, NULL, true);
+        #endif
         }
 
         MICROPY_PY_BLUETOOTH_EXIT
@@ -1532,6 +1545,42 @@ void mp_bluetooth_gap_on_connection_update(uint16_t conn_handle, uint16_t conn_i
     }
     schedule_ringbuf(atomic_state);
 }
+
+#if MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
+void mp_bluetooth_gatts_on_encryption_update(uint16_t conn_handle, bool encrypted, bool authenticated, bool bonded, uint8_t key_size) {
+    MICROPY_PY_BLUETOOTH_ENTER
+    mp_obj_bluetooth_ble_t *o = MP_OBJ_TO_PTR(MP_STATE_VM(bluetooth));
+    if (enqueue_irq(o, 2 + 1 + 1 + 1 + 1, MP_BLUETOOTH_IRQ_ENCRYPTION_UPDATE)) {
+        ringbuf_put16(&o->ringbuf, conn_handle);
+        ringbuf_put(&o->ringbuf, encrypted);
+        ringbuf_put(&o->ringbuf, authenticated);
+        ringbuf_put(&o->ringbuf, bonded);
+        ringbuf_put(&o->ringbuf, key_size);
+    }
+    schedule_ringbuf(atomic_state);
+}
+
+bool mp_bluetooth_gap_on_get_secret(uint8_t type, uint8_t index, const uint8_t *key, uint16_t key_len, const uint8_t **value, size_t *value_len) {
+    // TODO: Implement bonding
+    return true;
+}
+
+bool mp_bluetooth_gap_on_set_secret(uint8_t type, const uint8_t *key, size_t key_len, const uint8_t *value, size_t value_len) {
+    // TODO: Implement bonding
+    return true;
+}
+
+void mp_bluetooth_gap_on_passkey_action(uint16_t conn_handle, uint8_t action, mp_int_t passkey) {
+    MICROPY_PY_BLUETOOTH_ENTER
+    mp_obj_bluetooth_ble_t *o = MP_OBJ_TO_PTR(MP_STATE_VM(bluetooth));
+    if (enqueue_irq(o, 2 + 1 + 4, MP_BLUETOOTH_IRQ_PASSKEY_ACTION)) {
+        ringbuf_put16(&o->ringbuf, conn_handle);
+        ringbuf_put(&o->ringbuf, action);
+        ringbuf_put_bytes(&o->ringbuf, (uint8_t *)&passkey, 4);
+    }
+    schedule_ringbuf(atomic_state);
+}
+#endif // MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING
 
 void mp_bluetooth_gatts_on_write(uint16_t conn_handle, uint16_t value_handle) {
     MICROPY_PY_BLUETOOTH_ENTER
