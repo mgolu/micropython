@@ -43,7 +43,6 @@ LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
 
 #include <nrfx_clock.h>
 
-#include <zephyr/net/net_if.h>
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/net_event.h>
 #include <zephyr/net/net_config.h>
@@ -191,10 +190,9 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_wlan_active_obj, 1, 2, networ
 STATIC mp_obj_t network_wlan_connect(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     enum { ARG_ssid, ARG_key, ARG_auth, ARG_mfp, ARG_channel };
     static const mp_arg_t allowed_args[] = {
-        { MP_QSTR_, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = mp_const_none} },
-        { MP_QSTR_, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = mp_const_none} },
-        /* Defaults to WPA3-SAE */
-        { MP_QSTR_auth, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = WIFI_SECURITY_TYPE_SAE}},
+        { MP_QSTR_ssid, MP_ARG_REQUIRED | MP_ARG_OBJ },
+        { MP_QSTR_key, MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_auth, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = WIFI_SECURITY_TYPE_UNKNOWN}},
         { MP_QSTR_mfp, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = WIFI_MFP_OPTIONAL}},
         { MP_QSTR_channel, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = WIFI_CHANNEL_ANY}},
     };
@@ -203,21 +201,28 @@ STATIC mp_obj_t network_wlan_connect(size_t n_args, const mp_obj_t *pos_args, mp
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
+    struct net_if *iface = net_if_get_default();
+
+    if (args[ARG_auth].u_int > WIFI_SECURITY_TYPE_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Auth value not valid"));
+    }
+    if (args[ARG_auth].u_int != WIFI_SECURITY_TYPE_NONE && args[ARG_key].u_obj == mp_const_none) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Key is required"));
+    }
     if (args[ARG_channel].u_int != WIFI_CHANNEL_ANY &&
         args[ARG_channel].u_int > WIFI_CHANNEL_MAX) {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid channel number"));
     }
 
-    struct net_if *iface = net_if_get_default();
+
     static struct wifi_connect_req_params cnx_params;
 
     size_t len;
     const char *p;
-    if (args[ARG_ssid].u_obj != mp_const_none) {
-        p = mp_obj_str_get_data(args[ARG_ssid].u_obj, &len);
-        cnx_params.ssid = p;
-        cnx_params.ssid_length = MIN(len, WIFI_SSID_MAX_LEN);
-    }
+    p = mp_obj_str_get_data(args[ARG_ssid].u_obj, &len);
+    cnx_params.ssid = p;
+    cnx_params.ssid_length = MIN(len, WIFI_SSID_MAX_LEN);
+
     if (args[ARG_key].u_obj != mp_const_none) {
         p = mp_obj_str_get_data(args[ARG_key].u_obj, &len);
         cnx_params.psk = (uint8_t *)p;
@@ -226,7 +231,7 @@ STATIC mp_obj_t network_wlan_connect(size_t n_args, const mp_obj_t *pos_args, mp
     cnx_params.security = args[ARG_auth].u_int;
     cnx_params.channel = args[ARG_channel].u_int;
     cnx_params.mfp = args[ARG_mfp].u_int;
-    cnx_params.timeout = SYS_FOREVER_MS;
+    cnx_params.timeout = WIFI_CONNECT_TIMEOUT_SEC;
 
     if (net_mgmt(NET_REQUEST_WIFI_CONNECT, iface,
         &cnx_params, sizeof(struct wifi_connect_req_params))) {
@@ -253,19 +258,28 @@ STATIC mp_obj_t network_wlan_disconnect(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_disconnect_obj, network_wlan_disconnect);
 
-STATIC mp_obj_t network_wlan_status(mp_obj_t self_in) {
+
+STATIC int zephyr_wlan_status(mp_obj_t self_in, struct wifi_iface_status* iface_status) {
     wlan_if_obj_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->if_id == MOD_NETWORK_AP_IF) {
         mp_raise_NotImplementedError(MP_ERROR_TEXT("Status only on Station interface"));
     }
     struct net_if *iface = net_if_get_default();
-    struct wifi_iface_status iface_status = { 0 };
 
     if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface,
-        &iface_status, sizeof(struct wifi_iface_status))) {
+        iface_status, sizeof(struct wifi_iface_status))) {
         LOG_ERR("Status request failed");
+        return -1;
+    }
+    return 0;
+}
+
+STATIC mp_obj_t network_wlan_state(mp_obj_t self_in) {
+    struct wifi_iface_status iface_status;
+    if (zephyr_wlan_status(self_in, &iface_status)) {
         return mp_const_none;
     }
+
     mp_obj_t dict = mp_obj_new_dict(0);
     mp_obj_dict_store(dict, mp_obj_new_str("state", sizeof("state") - 1),
         mp_obj_new_int_from_uint(iface_status.state));
@@ -289,6 +303,34 @@ STATIC mp_obj_t network_wlan_status(mp_obj_t self_in) {
     }
 
     return dict;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_state_obj, network_wlan_state);
+
+STATIC mp_obj_t network_wlan_status(mp_obj_t self_in) {
+    struct wifi_iface_status iface_status;
+    if (zephyr_wlan_status(self_in, &iface_status)) {
+        return mp_const_none;
+    }
+    uint8_t retval = WIFI_STATE_DISCONNECTED;
+    
+    switch (iface_status.state) {
+        case WIFI_STATE_DISCONNECTED:
+        case WIFI_STATE_INTERFACE_DISABLED:
+        case WIFI_STATE_INACTIVE:
+            retval = WIFI_STATE_DISCONNECTED;
+            break;
+        case WIFI_STATE_SCANNING:
+        case WIFI_STATE_ASSOCIATING:
+        case WIFI_STATE_ASSOCIATED:
+        case WIFI_STATE_4WAY_HANDSHAKE:
+        case WIFI_STATE_GROUP_HANDSHAKE:
+            retval = WIFI_STATE_AUTHENTICATING;
+            break;
+        case WIFI_STATE_COMPLETED:
+            retval = WIFI_STATE_COMPLETED;
+            break;
+    }
+    return mp_obj_new_int_from_uint(retval);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_status_obj, network_wlan_status);
 
@@ -396,6 +438,7 @@ STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_wlan_connect_obj) },
     { MP_ROM_QSTR(MP_QSTR_disconnect), MP_ROM_PTR(&network_wlan_disconnect_obj) },
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&network_wlan_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_state), MP_ROM_PTR(&network_wlan_state_obj) },
     { MP_ROM_QSTR(MP_QSTR_scan), MP_ROM_PTR(&network_wlan_scan_obj) },
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_wlan_isconnected_obj) },
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_wlan_config_obj) },
