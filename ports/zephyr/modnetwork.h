@@ -28,8 +28,6 @@
 
 #include <zephyr/net/wifi.h>
 
-#define WIFI_CONNECT_TIMEOUT_SEC    90
-
 typedef struct _wlan_if_obj_t {
     mp_obj_base_t base;
     int if_id;

@@ -40,9 +40,9 @@ Methods
     in this case).
 
     For the Zephyr port, the *auth* parameter is required. You can use the
-    integers from network.AUTH_**, or use the value returned in the scan, e.g:
+    integers from network.AUTH_**, or use the value returned in the scan, e.g::
 
-        nic.connect('ssid', 'passphrase', network.AUTH_WPA2_PSK)
+     nic.connect('ssid', 'passphrase', network.AUTH_WPA2_PSK)
 
 .. method:: WLAN.disconnect()
 
@@ -98,6 +98,15 @@ Methods
 
     When called with one argument *param* should be a string naming the status
     parameter to retrieve.  Supported parameters in WiFI STA mode are: ``'rssi'``.
+
+    The Zephyr port also supports the ``'all'`` parameter which returns a dictionary
+    with the following status parameters:
+
+        * ``'ssid'``: SSID of the current connection
+        * ``'band'``: The frequency band being used, e.g. network.WIFI_BAND_2_4_GHZ
+        * ``'link_mode'``: The Wi-Fi generation. For example, 6 for Wi-Fi 6 (802.11ax)
+
+    As well as the self-explanatory ``'rssi'``, ``'mfp'``, ``'channel'``, ``'security'``.
 
 .. method:: WLAN.isconnected()
 

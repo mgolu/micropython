@@ -46,6 +46,8 @@ LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/net_event.h>
 #include <zephyr/net/net_config.h>
+#include <zephyr/net/dns_resolve.h>
+#include <zephyr/net/net_ip.h>
 
 STATIC const wlan_if_obj_t wlan_sta_obj;
 STATIC const wlan_if_obj_t wlan_ap_obj;
@@ -231,7 +233,7 @@ STATIC mp_obj_t network_wlan_connect(size_t n_args, const mp_obj_t *pos_args, mp
     cnx_params.security = args[ARG_auth].u_int;
     cnx_params.channel = args[ARG_channel].u_int;
     cnx_params.mfp = args[ARG_mfp].u_int;
-    cnx_params.timeout = WIFI_CONNECT_TIMEOUT_SEC;
+    cnx_params.timeout = SYS_FOREVER_MS;
 
     if (net_mgmt(NET_REQUEST_WIFI_CONNECT, iface,
         &cnx_params, sizeof(struct wifi_connect_req_params))) {
@@ -258,81 +260,80 @@ STATIC mp_obj_t network_wlan_disconnect(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_disconnect_obj, network_wlan_disconnect);
 
-
-STATIC int zephyr_wlan_status(mp_obj_t self_in, struct wifi_iface_status* iface_status) {
-    wlan_if_obj_t *self = MP_OBJ_TO_PTR(self_in);
+STATIC mp_obj_t network_wlan_status(size_t n_args, const mp_obj_t *args) {
+    wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (self->if_id == MOD_NETWORK_AP_IF) {
         mp_raise_NotImplementedError(MP_ERROR_TEXT("Status only on Station interface"));
     }
+
+    struct wifi_iface_status iface_status;
     struct net_if *iface = net_if_get_default();
 
     if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface,
-        iface_status, sizeof(struct wifi_iface_status))) {
+        &iface_status, sizeof(struct wifi_iface_status))) {
         LOG_ERR("Status request failed");
-        return -1;
-    }
-    return 0;
-}
-
-STATIC mp_obj_t network_wlan_state(mp_obj_t self_in) {
-    struct wifi_iface_status iface_status;
-    if (zephyr_wlan_status(self_in, &iface_status)) {
         return mp_const_none;
     }
 
-    mp_obj_t dict = mp_obj_new_dict(0);
-    mp_obj_dict_store(dict, mp_obj_new_str("state", sizeof("state") - 1),
-        mp_obj_new_int_from_uint(iface_status.state));
-    if (iface_status.state == WIFI_STATE_COMPLETED) {
-        mp_obj_dict_store(dict, mp_obj_new_str("ssid", sizeof("ssid") - 1),
-            mp_obj_new_str(iface_status.ssid, iface_status.ssid_len));
-        mp_obj_dict_store(dict, mp_obj_new_str("band", sizeof("band") - 1),
-            mp_obj_new_int_from_uint(iface_status.band));
-        mp_obj_dict_store(dict, mp_obj_new_str("channel", sizeof("channel") - 1),
-            mp_obj_new_int(iface_status.channel));
-        mp_obj_dict_store(dict, mp_obj_new_str("iface_mode", sizeof("iface_mode") - 1),
-            mp_obj_new_int_from_uint(iface_status.iface_mode));
-        mp_obj_dict_store(dict, mp_obj_new_str("link_mode", sizeof("link_mode") - 1),
-            mp_obj_new_int_from_uint(iface_status.link_mode));
-        mp_obj_dict_store(dict, mp_obj_new_str("security", sizeof("security") - 1),
-            mp_obj_new_int_from_uint(iface_status.security));
-        mp_obj_dict_store(dict, mp_obj_new_str("mfp", sizeof("mfp") - 1),
-            mp_obj_new_int_from_uint(iface_status.mfp));
-        mp_obj_dict_store(dict, mp_obj_new_str("rssi", sizeof("rssi") - 1),
-            mp_obj_new_int(iface_status.rssi));
+    if (n_args == 1) {
+        if (self->if_id != MOD_NETWORK_STA_IF) {
+            return mp_const_none;
+        }
+        uint8_t retval = WIFI_STATE_DISCONNECTED;
+        
+        switch (iface_status.state) {
+            case WIFI_STATE_DISCONNECTED:
+            case WIFI_STATE_INTERFACE_DISABLED:
+            case WIFI_STATE_INACTIVE:
+                retval = WIFI_STATE_DISCONNECTED;
+                break;
+            case WIFI_STATE_SCANNING:
+            case WIFI_STATE_ASSOCIATING:
+            case WIFI_STATE_ASSOCIATED:
+            case WIFI_STATE_4WAY_HANDSHAKE:
+            case WIFI_STATE_GROUP_HANDSHAKE:
+                retval = WIFI_STATE_AUTHENTICATING;
+                break;
+            case WIFI_STATE_COMPLETED:
+                retval = WIFI_STATE_COMPLETED;
+                break;
+        }
+        return mp_obj_new_int_from_uint(retval);
     }
 
-    return dict;
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_state_obj, network_wlan_state);
-
-STATIC mp_obj_t network_wlan_status(mp_obj_t self_in) {
-    struct wifi_iface_status iface_status;
-    if (zephyr_wlan_status(self_in, &iface_status)) {
-        return mp_const_none;
+    // There's one more argument
+    switch ((uintptr_t)args[1]) {
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_rssi): {
+            return MP_OBJ_NEW_SMALL_INT(iface_status.rssi);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_all): {
+            mp_obj_t dict = mp_obj_new_dict(0);
+            if (iface_status.state == WIFI_STATE_COMPLETED) {
+                mp_obj_dict_store(dict, mp_obj_new_str("ssid", sizeof("ssid") - 1),
+                    mp_obj_new_str(iface_status.ssid, iface_status.ssid_len));
+                mp_obj_dict_store(dict, mp_obj_new_str("band", sizeof("band") - 1),
+                    mp_obj_new_int_from_uint(iface_status.band));
+                mp_obj_dict_store(dict, mp_obj_new_str("channel", sizeof("channel") - 1),
+                    mp_obj_new_int(iface_status.channel));
+                //mp_obj_dict_store(dict, mp_obj_new_str("iface_mode", sizeof("iface_mode") - 1),
+                //    mp_obj_new_int_from_uint(iface_status.iface_mode));
+                mp_obj_dict_store(dict, mp_obj_new_str("link_mode", sizeof("link_mode") - 1),
+                    mp_obj_new_int_from_uint(iface_status.link_mode));
+                mp_obj_dict_store(dict, mp_obj_new_str("security", sizeof("security") - 1),
+                    mp_obj_new_int_from_uint(iface_status.security));
+                mp_obj_dict_store(dict, mp_obj_new_str("mfp", sizeof("mfp") - 1),
+                    mp_obj_new_int_from_uint(iface_status.mfp));
+                mp_obj_dict_store(dict, mp_obj_new_str("rssi", sizeof("rssi") - 1),
+                    mp_obj_new_int(iface_status.rssi));
+            }
+            return dict;
+        }
+        default:
+            mp_raise_ValueError(MP_ERROR_TEXT("unknown status param"));
     }
-    uint8_t retval = WIFI_STATE_DISCONNECTED;
-    
-    switch (iface_status.state) {
-        case WIFI_STATE_DISCONNECTED:
-        case WIFI_STATE_INTERFACE_DISABLED:
-        case WIFI_STATE_INACTIVE:
-            retval = WIFI_STATE_DISCONNECTED;
-            break;
-        case WIFI_STATE_SCANNING:
-        case WIFI_STATE_ASSOCIATING:
-        case WIFI_STATE_ASSOCIATED:
-        case WIFI_STATE_4WAY_HANDSHAKE:
-        case WIFI_STATE_GROUP_HANDSHAKE:
-            retval = WIFI_STATE_AUTHENTICATING;
-            break;
-        case WIFI_STATE_COMPLETED:
-            retval = WIFI_STATE_COMPLETED;
-            break;
-    }
-    return mp_obj_new_int_from_uint(retval);
+    return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_status_obj, network_wlan_status);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_wlan_status_obj, 1, 2, network_wlan_status);
 
 STATIC mp_obj_t network_wlan_scan(mp_obj_t self_in) {
     static bool wifi_is_scanning = false;
@@ -433,16 +434,40 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
 }
 MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_config_obj, 1, network_wlan_config);
 
+STATIC mp_obj_t network_ifconfig(size_t n_args, const mp_obj_t *args) {
+    wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (self->if_id == MOD_NETWORK_AP_IF) {
+        mp_raise_NotImplementedError(MP_ERROR_TEXT("ipconfig only on Station interface"));
+    }
+    if (n_args == 1) {
+        struct net_if *iface = net_if_get_default();
+        struct dns_resolve_context *ctx = dns_resolve_get_default();
+        
+        char ip_info[32];
+
+        mp_obj_t tuple[4] = {
+            // TODO: Handle IPv6 cases
+            mp_obj_new_str(net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[0].address.in_addr.s_addr, ip_info, sizeof(ip_info)), strlen(ip_info)),
+            mp_obj_new_str(net_addr_ntop(AF_INET, &iface->config.ip.ipv4->netmask, ip_info, sizeof(ip_info)), strlen(ip_info)),
+            mp_obj_new_str(net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, ip_info, sizeof(ip_info)), strlen(ip_info)),
+            mp_obj_new_str(net_addr_ntop(AF_INET, &((struct sockaddr_in *)&ctx->servers[0].dns_server)->sin_addr.s_addr, ip_info, sizeof(ip_info)), strlen(ip_info)),
+        };
+        return mp_obj_new_tuple(4, tuple);
+    }
+    return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_ifconfig_obj, 1, 2, network_ifconfig);
+
 STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&network_wlan_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_wlan_connect_obj) },
     { MP_ROM_QSTR(MP_QSTR_disconnect), MP_ROM_PTR(&network_wlan_disconnect_obj) },
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&network_wlan_status_obj) },
-    { MP_ROM_QSTR(MP_QSTR_state), MP_ROM_PTR(&network_wlan_state_obj) },
     { MP_ROM_QSTR(MP_QSTR_scan), MP_ROM_PTR(&network_wlan_scan_obj) },
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_wlan_isconnected_obj) },
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_wlan_config_obj) },
-//    { MP_ROM_QSTR(MP_QSTR_ifconfig), MP_ROM_PTR(&esp_network_ifconfig_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ifconfig), MP_ROM_PTR(&network_ifconfig_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(wlan_if_locals_dict, wlan_if_locals_dict_table);
 
