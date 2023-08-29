@@ -38,8 +38,6 @@
 #include "modmachine.h"
 #include "shared/runtime/mpirq.h"
 
-#include "machine_pin.h"
-
 #if MICROPY_PY_MACHINE
 
 typedef struct _machine_pin_irq_obj_t {

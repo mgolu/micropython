@@ -130,10 +130,34 @@ class ZephyrPin(boardgen.Pin):
         return "Pin({:s}, {:s}, {:d})".format(self.name(), self._port, self._pin)
 
 
+class ZephyrSPI:
+    def __init__(self, node):
+        self._name = node.labels[0]
+        self._device = node.name
+
+    def definition(self):
+        return "SPI({:s})".format(self._name)
+
+
+class ZephyrI2C:
+    def __init__(self, node):
+        self._name = node.labels[0]
+        self._device = node.name
+
+    def definition(self):
+        return "I2C({:s})".format(self._name)
+
+
+NN = None
+
+
 class ZephyrPinGenerator(boardgen.PinGenerator):
     def __init__(self):
         # Use custom pin type above.
         super().__init__(pin_type=ZephyrPin)
+
+        self._spi = []
+        self._i2c = []
 
     # Add the --edt-pickle argument.
     def extra_args(self, parser):
@@ -176,7 +200,7 @@ class ZephyrPinGenerator(boardgen.PinGenerator):
                     pin._port = node.labels[0]
                     pin._pin = i
 
-            if node.name == "connector":
+            elif node.name == "connector":
                 dt = node._node.props["gpio-map"]
                 for i in range(0, len(dt._markers), 2):
                     cn, _, _, pin, _ = struct.unpack(">IIIII", dt.value[i * 10 : i * 10 + 20])
@@ -187,6 +211,48 @@ class ZephyrPinGenerator(boardgen.PinGenerator):
                         board_name += "_"
                     board_name += self.get_connector_pin_name(node, cn)
                     cpu_pin.add_board_pin_name(board_name, False)
+
+            elif "spi" in node.buses:
+                self._spi.append(ZephyrSPI(node))
+
+            elif "i2c" in node.buses:
+                self._i2c.append(ZephyrI2C(node))
+
+    def print_source(self, out_source):
+        super().print_source(out_source)
+
+        print(file=out_source)
+        print("#if CONFIG_SPI", file=out_source)
+        print("machine_hard_spi_obj_t machine_spi_obj_table[] = {", file=out_source)
+        for spi in self._spi:
+            print("    {:s},".format(spi.definition()), file=out_source)
+        print("};", file=out_source)
+        print("#endif", file=out_source)
+
+        print(file=out_source)
+        print("#if CONFIG_I2C", file=out_source)
+        print("machine_hard_i2c_obj_t machine_i2c_obj_table[] = {", file=out_source)
+        for i2c in self._i2c:
+            print("    {:s},".format(i2c.definition()), file=out_source)
+        print("};", file=out_source)
+        print("#endif", file=out_source)
+
+    def print_header(self, out_header):
+        super().print_header(out_header)
+
+        print(file=out_header)
+        print("#if CONFIG_SPI", file=out_header)
+        print(
+            "extern machine_hard_spi_obj_t machine_spi_obj_table[{:d}];".format(len(self._spi)),
+            file=out_header,
+        )
+        print("#endif", file=out_header)
+        print("#if CONFIG_I2C", file=out_header)
+        print(
+            "extern machine_hard_i2c_obj_t machine_i2c_obj_table[{:d}];".format(len(self._spi)),
+            file=out_header,
+        )
+        print("#endif", file=out_header)
 
 
 if __name__ == "__main__":

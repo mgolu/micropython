@@ -47,16 +47,10 @@
 #define DEFAULT_SPI_FIRSTBIT    (SPI_TRANSFER_MSB)
 #define SPI_LOOP                (0)    // For testing, enable loop mode by setting SPI_LOOP (1)
 
-typedef struct _machine_hard_spi_obj_t {
-    mp_obj_base_t base;
-    const struct device *dev;
-    struct spi_config config;
-} machine_hard_spi_obj_t;
-
 STATIC void machine_hard_spi_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
-    machine_hard_spi_obj_t *self = self_in;
+    machine_hard_spi_obj_t *self = MP_OBJ_TO_PTR(self_in);
     mp_printf(print, "SPI(%s, baudrate=%u, polarity=%u, phase=%u, bits=%u, firstbit=%s)",
-        self->dev->name,
+        self->device->name,
         self->config.frequency,
         (self->config.operation & 0x2) >> 1,
         (self->config.operation & 0x4) >> 2,
@@ -64,7 +58,26 @@ STATIC void machine_hard_spi_print(const mp_print_t *print, mp_obj_t self_in, mp
         ((self->config.operation & 0x10) >> 4) == SPI_TRANSFER_MSB ? "MSB" : "LSB");
 }
 
+STATIC machine_hard_spi_obj_t *find_spi_instance(mp_obj_t dt_label) {
+    if (mp_obj_is_type(dt_label, &machine_spi_type)) {
+        return MP_OBJ_TO_PTR(dt_label);
+    }
+
+    mp_printf(&mp_plat_print, "search %u\n", MP_ARRAY_SIZE(machine_spi_obj_table));
+    for (size_t i = 0; i < MP_ARRAY_SIZE(machine_spi_obj_table); ++i) {
+        mp_printf(&mp_plat_print, "check %q\n", machine_spi_obj_table[i].name);
+
+        if (mp_obj_equal(MP_OBJ_NEW_QSTR(machine_spi_obj_table[i].name), dt_label)) {
+            return &machine_spi_obj_table[i];
+        }
+    }
+
+    mp_raise_ValueError(MP_ERROR_TEXT("device not found"));
+}
+
 mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
+    // MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args);
+
     enum {ARG_id, ARG_baudrate, ARG_polarity, ARG_phase, ARG_bits, ARG_firstbit, ARG_sck, ARG_mosi, ARG_miso};
 
     static const mp_arg_t allowed_args[] = {
@@ -82,33 +95,21 @@ mp_obj_t machine_hard_spi_make_new(const mp_obj_type_t *type, size_t n_args, siz
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    const char *dev_name = mp_obj_str_get_str(args[ARG_id].u_obj);
-    const struct device *dev = device_get_binding(dev_name);
-
-    if (dev == NULL) {
-        mp_raise_ValueError(MP_ERROR_TEXT("device not found"));
-    }
+    machine_hard_spi_obj_t *self = find_spi_instance(args[ARG_id].u_obj);
 
     if ((args[ARG_sck].u_obj != MP_OBJ_NULL) || (args[ARG_miso].u_obj != MP_OBJ_NULL) || (args[ARG_mosi].u_obj != MP_OBJ_NULL)) {
         mp_raise_NotImplementedError(MP_ERROR_TEXT("explicit choice of sck/miso/mosi is not implemented"));
     }
 
-    struct spi_config cfg = {
-        .frequency = args[ARG_baudrate].u_int,
-        .operation = (SPI_OP_MODE_MASTER |
-            args[ARG_polarity].u_int << 1 |
-                args[ARG_phase].u_int << 2 |
-                SPI_LOOP << 3 |
-                args[ARG_firstbit].u_int << 4 |
-                args[ARG_bits].u_int << 5 |
-                SPI_LINES_SINGLE),
-        .slave = 0,
-        // .cs = {0},
-    };
-
-    machine_hard_spi_obj_t *self = mp_obj_malloc(machine_hard_spi_obj_t, &machine_spi_type);
-    self->dev = dev;
-    self->config = cfg;
+    memset(&self->config, 0, sizeof(struct spi_config));
+    self->config.frequency = args[ARG_baudrate].u_int;
+    self->config.operation = (SPI_OP_MODE_MASTER |
+        args[ARG_polarity].u_int << 1 |
+            args[ARG_phase].u_int << 2 |
+            SPI_LOOP << 3 |
+            args[ARG_firstbit].u_int << 4 |
+            args[ARG_bits].u_int << 5 |
+            SPI_LINES_SINGLE);
 
     return MP_OBJ_FROM_PTR(self);
 }
@@ -127,41 +128,29 @@ STATIC void machine_hard_spi_init(mp_obj_base_t *obj, size_t n_args, const mp_ob
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    machine_hard_spi_obj_t *self = (machine_hard_spi_obj_t *)obj;
-
-    uint32_t baudrate;
-    uint16_t operation = self->config.operation;
+    machine_hard_spi_obj_t *self = MP_OBJ_TO_PTR(obj);
 
     if (args[ARG_baudrate].u_int != -1) {
-        baudrate = args[ARG_baudrate].u_int;
+        self->config.frequency = args[ARG_baudrate].u_int;
     } else {
-        baudrate = self->config.frequency;
+        self->config.frequency = self->config.frequency;
     }
 
     if (args[ARG_polarity].u_int != -1) {
-        operation = (operation & ~0x2) | (args[ARG_polarity].u_int << 1);
+        self->config.operation = (self->config.operation & ~0x2) | (args[ARG_polarity].u_int << 1);
     }
 
     if (args[ARG_phase].u_int != -1) {
-        operation = (operation & ~0x4) | (args[ARG_phase].u_int << 2);
+        self->config.operation = (self->config.operation & ~0x4) | (args[ARG_phase].u_int << 2);
     }
 
     if (args[ARG_bits].u_int != -1) {
-        operation = (operation & 0x1F) | (args[ARG_bits].u_int << 5);
+        self->config.operation = (self->config.operation & 0x1F) | (args[ARG_bits].u_int << 5);
     }
 
     if (args[ARG_firstbit].u_int != -1) {
-        operation = (operation & ~0x10) | (args[ARG_firstbit].u_int << 4);
+        self->config.operation = (self->config.operation & ~0x10) | (args[ARG_firstbit].u_int << 4);
     }
-
-    struct spi_config cfg = {
-        .frequency = baudrate,
-        .operation = operation,
-        .slave = 0,
-        // .cs = {0},
-    };
-
-    self->config = cfg;
 }
 
 STATIC void machine_hard_spi_transfer(mp_obj_base_t *obj, size_t len, const uint8_t *src, uint8_t *dest) {
@@ -185,7 +174,7 @@ STATIC void machine_hard_spi_transfer(mp_obj_base_t *obj, size_t len, const uint
         .count = ARRAY_SIZE(rx_bufs)
     };
 
-    ret = spi_transceive(self->dev, &self->config, &tx, &rx);
+    ret = spi_transceive(self->device, &self->config, &tx, &rx);
 
     if (ret < 0) {
         mp_raise_OSError(-ret);

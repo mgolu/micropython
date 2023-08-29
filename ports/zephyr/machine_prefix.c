@@ -28,8 +28,7 @@
 #include "py/obj.h"
 #include "py/mphal.h"
 
-#include "machine_pin.h"
-#include "genhdr/machine_defs.h"
+#include "modmachine.h"
 
 #define Pin(p_name, p_port_label, p_pin) \
     { \
@@ -37,4 +36,18 @@
         .name = MP_QSTR_##p_name, \
         .port = DEVICE_DT_GET(DT_NODELABEL(p_port_label)), \
         .pin = p_pin, \
+    }
+
+#define SPI(dt_label) \
+    { \
+        .base = { &machine_spi_type }, \
+        .name = MP_QSTR_##dt_label, \
+        .device = DEVICE_DT_GET(DT_NODELABEL(dt_label)), \
+    }
+
+#define I2C(dt_label) \
+    { \
+        .base = { &machine_i2c_type }, \
+        .name = MP_QSTR_##dt_label, \
+        .device = DEVICE_DT_GET(DT_NODELABEL(dt_label)), \
     }
