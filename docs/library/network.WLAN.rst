@@ -39,6 +39,11 @@ Methods
     access-point with that MAC address (the *ssid* must also be specified
     in this case).
 
+    For the Zephyr port, the *auth* parameter is required. You can use the
+    integers from network.AUTH_**, or use the value returned in the scan, e.g:
+
+        nic.connect('ssid', 'passphrase', network.AUTH_WPA2_PSK)
+
 .. method:: WLAN.disconnect()
 
     Disconnect from the currently connected wireless network.
@@ -64,6 +69,13 @@ Methods
         * 2 -- WPA-PSK
         * 3 -- WPA2-PSK
         * 4 -- WPA/WPA2-PSK
+    
+    For the Zephyr port, the values should be checked against the built-in values, and
+    it can also be passed directly to the `connect()` function as the `auth` parameter:
+        * network.AUTH_OPEN
+        * network.AUTH_WPA2_PSK
+        * network.AUTH_WPA2_PSK_SHA256
+        * network.AUTH_WPA3_SAE
 
     and two for hidden:
 

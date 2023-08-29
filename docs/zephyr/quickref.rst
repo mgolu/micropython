@@ -104,6 +104,36 @@ Hardware SPI is accessed via the :ref:`machine.SPI <machine.SPI>` class::
     spi.write_readinto(b'abcd', buf)    # write to MOSI and read from MISO into the buffer
     spi.write_readinto(buf, buf)        # write buf to MOSI and read back into the buf
 
+Networking
+----------
+
+WLAN
+^^^^
+
+The :mod:`network` module::
+
+    import network
+
+    wlan = network.WLAN(network.STA_IF) # create station interface
+    wlan.scan()             # scan for access points
+    wlan.isconnected()      # check if the station is connected to an AP
+    wlan.connect('ssid', 'key', auth=network.AUTH_WPA2_PSK) # connect to an AP
+
+A useful function for connecting to your local WiFi network is::
+
+    def do_connect():
+        import network
+        wlan = network.WLAN(network.STA_IF)
+        if not wlan.isconnected():
+            print('connecting to network...')
+            wlan.connect('ssid', 'key', auth=network.AUTH_WPA2_PSK)
+            while not wlan.isconnected():
+                pass
+
+Once the network is established the :mod:`socket <socket>` module can be used
+to create and use TCP/UDP sockets as usual, and the ``urequests`` module for
+convenient HTTP requests.
+
 Disk Access
 -----------
 
