@@ -34,6 +34,8 @@ set(MICROPY_TARGET      micropython)
 include(${MICROPY_DIR}/py/py.cmake)
 include(${MICROPY_DIR}/extmod/extmod.cmake)
 
+set(GEN_MACHINE_DEFS_SRC "${CMAKE_BINARY_DIR}/machine_defs.c")
+
 set(MICROPY_SOURCE_PORT
     main.c
     help.c
@@ -51,6 +53,10 @@ set(MICROPY_SOURCE_PORT
     zephyr_storage.c
 )
 list(TRANSFORM MICROPY_SOURCE_PORT PREPEND ${MICROPY_PORT_DIR}/)
+
+list(APPEND MICROPY_SOURCE_PORT
+    ${GEN_MACHINE_DEFS_SRC}
+)
 
 set(MICROPY_SOURCE_SHARED
     libc/printf.c
@@ -77,7 +83,6 @@ set(MICROPY_SOURCE_QSTR
     ${MICROPY_SOURCE_PY}
     ${MICROPY_SOURCE_EXTMOD}
     ${MICROPY_SOURCE_SHARED}
-    ${MICROPY_SOURCE_LIB}
     ${MICROPY_SOURCE_PORT}
 )
 
@@ -110,11 +115,34 @@ zephyr_library_compile_definitions(
     MICROPY_VFS_LFS2=$<BOOL:${CONFIG_MICROPY_VFS_LFS2}>
 )
 
-zephyr_library_sources(${MICROPY_SOURCE_QSTR})
+zephyr_library_sources(
+    ${MICROPY_SOURCE_PY}
+    ${MICROPY_SOURCE_EXTMOD}
+    ${MICROPY_SOURCE_SHARED}
+    ${MICROPY_SOURCE_LIB}
+    ${MICROPY_SOURCE_PORT}
+)
 
 add_dependencies(${MICROPY_TARGET} zephyr_generated_headers)
 
 include(${MICROPY_DIR}/py/mkrules.cmake)
+
+set(GEN_MACHINE_DEFS_PY "${MICROPY_PORT_DIR}/make-machine-defs.py")
+set(GEN_MACHINE_DEFS_PREFIX "${MICROPY_PORT_DIR}/machine_prefix.c")
+set(GEN_MACHINE_DEFS_HDR "${MICROPY_GENHDR_DIR}/machine_defs.h")
+set(GEN_MACHINE_DEFS_EDT_PICKLE "${CMAKE_BINARY_DIR}/zephyr/edt.pickle")
+
+add_custom_command(
+    OUTPUT ${GEN_MACHINE_DEFS_HDR} ${GEN_MACHINE_DEFS_SRC}
+    COMMAND ${Python3_EXECUTABLE} ${GEN_MACHINE_DEFS_PY} --prefix ${GEN_MACHINE_DEFS_PREFIX} --output-source ${GEN_MACHINE_DEFS_SRC} --output-header ${GEN_MACHINE_DEFS_HDR} --edt-pickle ${GEN_MACHINE_DEFS_EDT_PICKLE}
+    DEPENDS
+        ${GEN_MACHINE_DEFS_PY}
+        ${GEN_MACHINE_DEFS_PREFIX}
+        ${GEN_MACHINE_DEFS_EDT_PICKLE}
+        ${MICROPY_MPVERSION}
+    VERBATIM
+    COMMAND_EXPAND_LISTS
+)
 
 target_sources(app PRIVATE
     src/zephyr_start.c
