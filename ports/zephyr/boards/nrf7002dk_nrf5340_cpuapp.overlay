@@ -7,10 +7,30 @@
  / {
 	chosen {
 		nordic,pm-ext-flash = &mx25r64;
+		zephyr,code-partition = &app;
 	};
 };
 
+ /delete-node/ &boot_partition;
+ /delete-node/ &slot0_partition;
+ /delete-node/ &slot0_ns_partition;
+ /delete-node/ &slot1_partition;
+ /delete-node/ &slot1_ns_partition;
+ /delete-node/ &scratch_partition;
  /delete-node/ &storage_partition;
+ 
+ &flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		app: partition@0 {
+			label = "app";
+			reg = <0x00000000 0x00100000>;
+		};
+	};
+};
 
  &mx25r64 {
 	partitions {
