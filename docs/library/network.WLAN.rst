@@ -99,14 +99,14 @@ Methods
     When called with one argument *param* should be a string naming the status
     parameter to retrieve.  Supported parameters in WiFI STA mode are: ``'rssi'``.
 
-    The Zephyr port also supports the ``'all'`` parameter which returns a dictionary
-    with the following status parameters:
+    In addition, the Zephyr port also supports the following parameters:
 
         * ``'ssid'``: SSID of the current connection
         * ``'band'``: The frequency band being used, e.g. network.WIFI_BAND_2_4_GHZ
         * ``'link_mode'``: The Wi-Fi generation. For example, 6 for Wi-Fi 6 (802.11ax)
-
-    As well as the self-explanatory ``'rssi'``, ``'mfp'``, ``'channel'``, ``'security'``.
+        * ``'channel'``: The channel being used
+        * ``'mfp'``: The current Management Frame Protection option. 0 - disabled; 1 - optional; 2 - required
+        * ``'security'``: The security used in the current connection
 
 .. method:: WLAN.isconnected()
 
@@ -155,7 +155,15 @@ Methods
    reconnects     Number of reconnect attempts to make (integer, 0=none, -1=unlimited)
    txpower        Maximum transmit power in dBm (integer or float)
    pm             WiFi Power Management setting (see below for allowed values)
+   wmm            0 for Legacy power save mode, 1 for Wireless Multimedia (WMM)
+   wakeup         0 for wakeup on every DTIM beacon, 1 to set a listen interval and skip beacons
+   listen_interval Number of beacons to skip. For example, setting this to 10 will sleep for approximately 1 minute.
+   timeout_ms     The power save inactivity timer (in ms)          
    =============  ===========
+
+.. note::
+    ``wmm`` and ``listen_interval`` parameters can only be changed when the device is
+    not connected to an access point.
 
 Constants
 ---------
