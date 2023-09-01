@@ -306,27 +306,23 @@ STATIC mp_obj_t network_wlan_status(size_t n_args, const mp_obj_t *args) {
         case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_rssi): {
             return MP_OBJ_NEW_SMALL_INT(iface_status.rssi);
         }
-        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_all): {
-            mp_obj_t dict = mp_obj_new_dict(0);
-            if (iface_status.state == WIFI_STATE_COMPLETED) {
-                mp_obj_dict_store(dict, mp_obj_new_str("ssid", sizeof("ssid") - 1),
-                    mp_obj_new_str(iface_status.ssid, iface_status.ssid_len));
-                mp_obj_dict_store(dict, mp_obj_new_str("band", sizeof("band") - 1),
-                    mp_obj_new_int_from_uint(iface_status.band));
-                mp_obj_dict_store(dict, mp_obj_new_str("channel", sizeof("channel") - 1),
-                    mp_obj_new_int(iface_status.channel));
-                //mp_obj_dict_store(dict, mp_obj_new_str("iface_mode", sizeof("iface_mode") - 1),
-                //    mp_obj_new_int_from_uint(iface_status.iface_mode));
-                mp_obj_dict_store(dict, mp_obj_new_str("link_mode", sizeof("link_mode") - 1),
-                    mp_obj_new_int_from_uint(iface_status.link_mode));
-                mp_obj_dict_store(dict, mp_obj_new_str("security", sizeof("security") - 1),
-                    mp_obj_new_int_from_uint(iface_status.security));
-                mp_obj_dict_store(dict, mp_obj_new_str("mfp", sizeof("mfp") - 1),
-                    mp_obj_new_int_from_uint(iface_status.mfp));
-                mp_obj_dict_store(dict, mp_obj_new_str("rssi", sizeof("rssi") - 1),
-                    mp_obj_new_int(iface_status.rssi));
-            }
-            return dict;
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_ssid): {
+            return mp_obj_new_str(iface_status.ssid, iface_status.ssid_len);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_band): {
+            return mp_obj_new_int_from_uint(iface_status.band);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_channel): {
+            return mp_obj_new_int(iface_status.channel);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_link_mode): {
+            return mp_obj_new_int_from_uint(iface_status.link_mode);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_security): {
+            return mp_obj_new_int_from_uint(iface_status.security);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_mfp): {
+            return mp_obj_new_int_from_uint(iface_status.mfp);
         }
         default:
             mp_raise_ValueError(MP_ERROR_TEXT("unknown status param"));
@@ -367,73 +363,6 @@ STATIC mp_obj_t network_wlan_isconnected(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_isconnected_obj, network_wlan_isconnected);
 
-STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
-    #ifdef CONFIG_WIFI_NRF700X
-    mp_raise_NotImplementedError(MP_ERROR_TEXT("AP not yet implemented on nRF700x"));
-    #endif
-
-    wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-    if (self->if_id == MOD_NETWORK_STA_IF) {
-        mp_raise_NotImplementedError(MP_ERROR_TEXT("Config parameters are only for AP_IF"));
-    }
-    if (n_args != 1 && kwargs->used != 0) {
-        mp_raise_TypeError(MP_ERROR_TEXT("Either query or set parameters is allowed"));
-    }
-    if (n_args > 2) {
-        mp_raise_TypeError(MP_ERROR_TEXT("Only one parameter can be queried"));
-    }
-
-    if (kwargs->used != 0) {
-        static struct wifi_connect_req_params ap_params;
-        for (size_t i = 0; i < kwargs->alloc; i++) {
-            if (mp_map_slot_is_filled(kwargs, i)) {
-                switch (mp_obj_str_get_qstr(kwargs->table[i].key)) {
-                    case MP_QSTR_ssid: {
-                        size_t len;
-                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
-                        ap_params.ssid = s;
-                        ap_params.ssid_length = MIN(len, WIFI_SSID_MAX_LEN);
-                        break;
-                    }
-                    case MP_QSTR_security:
-                    case MP_QSTR_authmode: {
-                        ap_params.security = mp_obj_get_int(kwargs->table[i].value);
-                        break;
-                    }
-                    case MP_QSTR_key:
-                    case MP_QSTR_password: {
-                        size_t len;
-                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
-                        ap_params.psk = (uint8_t *)s;
-                        ap_params.psk_length = MIN(len, WIFI_PSK_MAX_LEN);
-                        break;
-                    }
-                    case MP_QSTR_band: {
-                        ap_params.band = mp_obj_get_int(kwargs->table[i].value);
-                        break;
-                    }
-                    case MP_QSTR_channel: {
-                        ap_params.channel = mp_obj_get_int(kwargs->table[i].value);
-                        break;
-                    }
-                    default:
-                        break;
-                }
-            }
-        }
-
-        struct net_if *iface = net_if_get_default();
-        if (net_mgmt(NET_REQUEST_WIFI_AP_ENABLE, iface,
-            &ap_params, sizeof(struct wifi_connect_req_params))) {
-            LOG_ERR("Cannot configure AP");
-            return mp_const_false;
-        }
-
-        return mp_const_none;
-    }
-}
-MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_config_obj, 1, network_wlan_config);
-
 STATIC mp_obj_t network_ifconfig(size_t n_args, const mp_obj_t *args) {
     wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     if (self->if_id == MOD_NETWORK_AP_IF) {
@@ -456,8 +385,170 @@ STATIC mp_obj_t network_ifconfig(size_t n_args, const mp_obj_t *args) {
     }
     return mp_const_none;
 }
-
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_ifconfig_obj, 1, 2, network_ifconfig);
+
+STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
+    wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+
+    if (n_args != 1 && kwargs->used != 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Can only query or set params"));
+    }
+
+    struct net_if *iface = net_if_get_default();
+
+    if (kwargs->used != 0) {
+        enum { config_none, config_ps, config_ap };
+        for (size_t i = 0; i < kwargs->alloc; i++) {
+            struct wifi_ps_params params;
+            static struct wifi_connect_req_params ap_params;
+            size_t config = config_none;
+            if (mp_map_slot_is_filled(kwargs, i)) {
+                switch (mp_obj_str_get_qstr(kwargs->table[i].key)) {
+                    case MP_QSTR_pm: {
+                        params.type = WIFI_PS_PARAM_STATE;
+                        params.enabled = (uint8_t)mp_obj_get_int(kwargs->table[i].value);
+                        if (params.enabled > WIFI_PS_ENABLED) {
+                            mp_raise_ValueError("pm value invalid");
+                        }
+                        config = config_ps;
+                        break;
+                    }
+                    case MP_QSTR_wmm: {
+                        params.type = WIFI_PS_PARAM_MODE;
+                        params.mode = (uint8_t)mp_obj_get_int(kwargs->table[i].value);
+                        if (params.mode > WIFI_PS_MODE_WMM) {
+                            mp_raise_ValueError("wmm must be 0 (legacy) or 1 (wmm)");
+                        }
+                        config = config_ps;
+                        break;
+                    }
+                    case MP_QSTR_wakeup: {
+                        params.type = WIFI_PS_PARAM_WAKEUP_MODE;
+                        params.wakeup_mode = (uint8_t)mp_obj_get_int(kwargs->table[i].value);
+                        if (params.wakeup_mode > WIFI_PS_WAKEUP_MODE_LISTEN_INTERVAL) {
+                            mp_raise_ValueError("Wake up mode must be 0 (dtim) or 1 (interval)");
+                        }
+                        config = config_ps;
+                        break;
+                    }
+                    case MP_QSTR_listen_interval: {
+                        params.type = WIFI_PS_PARAM_LISTEN_INTERVAL;
+                        params.listen_interval = (uint8_t)mp_obj_get_int(kwargs->table[i].value);
+                        config = config_ps;
+                        break;
+                    }
+                    case MP_QSTR_timeout_ms: {
+                        params.type = WIFI_PS_PARAM_TIMEOUT;
+                        params.timeout_ms = mp_obj_get_int(kwargs->table[i].value);
+                        config = config_ps;
+                        break;
+                    }
+                    case MP_QSTR_ssid: {
+                        size_t len;
+                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
+                        ap_params.ssid = s;
+                        ap_params.ssid_length = MIN(len, WIFI_SSID_MAX_LEN);
+                        config = config_ap;
+                        break;
+                    }
+                    case MP_QSTR_security:
+                    case MP_QSTR_authmode: {
+                        ap_params.security = mp_obj_get_int(kwargs->table[i].value);
+                        config = config_ap;
+                        break;
+                    }
+                    case MP_QSTR_key:
+                    case MP_QSTR_password: {
+                        size_t len;
+                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
+                        ap_params.psk = (uint8_t *)s;
+                        ap_params.psk_length = MIN(len, WIFI_PSK_MAX_LEN);
+                        config = config_ap;
+                        break;
+                    }
+                    case MP_QSTR_band: {
+                        ap_params.band = mp_obj_get_int(kwargs->table[i].value);
+                        config = config_ap;
+                        break;
+                    }
+                    case MP_QSTR_channel: {
+                        ap_params.channel = mp_obj_get_int(kwargs->table[i].value);
+                        config = config_ap;
+                        break;
+                    }
+                    default:
+                        mp_raise_ValueError("Unknown param");
+                }
+                if (config == config_ps) {
+                    if (self->if_id == MOD_NETWORK_AP_IF) {
+                        mp_raise_NotImplementedError(MP_ERROR_TEXT("Power config valid only on Station interface"));
+                    } else if (net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params))) {
+                        mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("%s"), get_ps_config_err_code_str(params.fail_reason));
+                    }
+                }
+                if (config == config_ap) {
+                    #ifdef CONFIG_WIFI_NRF700X
+                    mp_raise_NotImplementedError(MP_ERROR_TEXT("AP not yet implemented on nRF700x"));
+                    #endif
+                    if (self->if_id != MOD_NETWORK_AP_IF) {
+                        mp_raise_NotImplementedError(MP_ERROR_TEXT("AP config valid only on AP interface"));
+                    } else if (net_mgmt(NET_REQUEST_WIFI_AP_ENABLE, iface, &ap_params, sizeof(struct wifi_connect_req_params))) {
+                        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Error configuring AP"));
+                        return mp_const_false;
+                    }
+                }
+            }
+        }
+        return mp_const_none;
+    }
+
+    // Get config
+    if (n_args != 2) {
+        mp_raise_TypeError(MP_ERROR_TEXT("can query only one param"));
+    }
+
+    if (self->if_id == MOD_NETWORK_STA_IF) {
+        struct wifi_ps_config config = { 0 };
+        if (net_mgmt(NET_REQUEST_WIFI_PS_CONFIG, iface, &config, sizeof(config))) {
+            mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed to get configuration"));
+        }
+
+        switch (mp_obj_str_get_qstr(args[1])) {
+            case MP_QSTR_pm:
+                return mp_obj_new_int_from_uint(config.ps_params.enabled);
+            case MP_QSTR_wmm: 
+                return mp_obj_new_int_from_uint(config.ps_params.mode);
+            case MP_QSTR_wakeup:
+                return mp_obj_new_int_from_uint(config.ps_params.wakeup_mode);
+            case MP_QSTR_listen_interval:
+                return mp_obj_new_int_from_uint(config.ps_params.listen_interval);
+            case MP_QSTR_timeout_ms:
+                return mp_obj_new_int(config.ps_params.timeout_ms);
+            case MP_QSTR_twt: {
+                mp_obj_t flows[config.num_twt_flows];
+                for (size_t i = 0; i < config.num_twt_flows; i++) {
+                    mp_obj_t tuple[9] = {
+                        mp_obj_new_int_from_uint(config.twt_flows[i].dialog_token),
+                        mp_obj_new_int_from_uint(config.twt_flows[i].flow_id),
+                        mp_obj_new_int_from_uint(config.twt_flows[i].negotiation_type),
+                        mp_obj_new_bool(config.twt_flows[i].responder),
+                        mp_obj_new_bool(config.twt_flows[i].implicit),
+                        mp_obj_new_bool(config.twt_flows[i].announce),
+                        mp_obj_new_bool(config.twt_flows[i].trigger),
+                        mp_obj_new_int_from_uint(config.twt_flows[i].twt_wake_interval),
+                        mp_obj_new_int_from_ull(config.twt_flows[i].twt_interval),
+                    };
+                    flows[i] = mp_obj_new_tuple(9, tuple);
+                }
+                return mp_obj_new_tuple(config.num_twt_flows, flows);
+            }
+            default:
+                mp_raise_ValueError(MP_ERROR_TEXT("unknown config param"));
+        }
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_config_obj, 1, network_wlan_config);
 
 STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&network_wlan_active_obj) },
@@ -468,6 +559,11 @@ STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_wlan_isconnected_obj) },
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_wlan_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_ifconfig), MP_ROM_PTR(&network_ifconfig_obj) },
+
+    // Constants
+    { MP_ROM_QSTR(MP_QSTR_PM_NONE), MP_ROM_INT(WIFI_PS_DISABLED) },
+    { MP_ROM_QSTR(MP_QSTR_PM_PERFORMANCE), MP_ROM_INT(WIFI_PS_ENABLED) },
+    { MP_ROM_QSTR(MP_QSTR_PM_POWERSAVE), MP_ROM_INT(WIFI_PS_ENABLED) },
 };
 STATIC MP_DEFINE_CONST_DICT(wlan_if_locals_dict, wlan_if_locals_dict_table);
 
