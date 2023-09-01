@@ -99,14 +99,19 @@ Methods
     When called with one argument *param* should be a string naming the status
     parameter to retrieve.  Supported parameters in WiFI STA mode are: ``'rssi'``.
 
-    In addition, the Zephyr port also supports the following parameters:
+    In addition, the Zephyr port also supports the following parameters. All the parameters
+    refer to the access point that the device is currently connected to.
 
         * ``'ssid'``: SSID of the current connection
         * ``'band'``: The frequency band being used, e.g. network.WIFI_BAND_2_4_GHZ
         * ``'link_mode'``: The Wi-Fi generation. For example, 6 for Wi-Fi 6 (802.11ax)
         * ``'channel'``: The channel being used
         * ``'mfp'``: The current Management Frame Protection option. 0 - disabled; 1 - optional; 2 - required
-        * ``'security'``: The security used in the current connection
+        * ``'security'``: The security being used.
+        * ``'bssid'``: Hardware address of the access point, in binary form, returned as bytes object.
+        * ``'dtim'``: The DTIM period of the access point.
+        * ``'beacon_interval'``: The beacon interval of the access point, in ms.
+        * ``'twt_capable'``: Whether the access point supports TWT for power savings.
 
 .. method:: WLAN.isconnected()
 

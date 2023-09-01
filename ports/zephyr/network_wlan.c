@@ -269,10 +269,8 @@ STATIC mp_obj_t network_wlan_status(size_t n_args, const mp_obj_t *args) {
     struct wifi_iface_status iface_status;
     struct net_if *iface = net_if_get_default();
 
-    if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface,
-        &iface_status, sizeof(struct wifi_iface_status))) {
-        LOG_ERR("Status request failed");
-        return mp_const_none;
+    if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface, &iface_status, sizeof(struct wifi_iface_status))) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Error getting status"));
     }
 
     if (n_args == 1) {
@@ -302,6 +300,9 @@ STATIC mp_obj_t network_wlan_status(size_t n_args, const mp_obj_t *args) {
     }
 
     // There's one more argument
+    if (iface_status.state != WIFI_STATE_COMPLETED) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Device not connected"));
+    }
     switch ((uintptr_t)args[1]) {
         case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_rssi): {
             return MP_OBJ_NEW_SMALL_INT(iface_status.rssi);
@@ -323,6 +324,18 @@ STATIC mp_obj_t network_wlan_status(size_t n_args, const mp_obj_t *args) {
         }
         case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_mfp): {
             return mp_obj_new_int_from_uint(iface_status.mfp);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_bssid): {
+            return mp_obj_new_bytes(iface_status.bssid, WIFI_MAC_ADDR_LEN);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_dtim): {
+            return mp_obj_new_int_from_uint(iface_status.dtim_period);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_beacon_interval): {
+            return mp_obj_new_int_from_uint(iface_status.beacon_interval);
+        }
+        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_twt_capable): {
+            return mp_obj_new_bool(iface_status.twt_capable);
         }
         default:
             mp_raise_ValueError(MP_ERROR_TEXT("unknown status param"));
