@@ -168,3 +168,29 @@ run the following after you built an image with the previous command:
 
     $ west build -t run
 
+Build with the nRF Connect SDK
+------------------------------
+
+You might want to build MicroPython using the nRF Connect SDK for a few
+reasons. For example, the nRF Connect SDK has a graphical installer that
+makes it easier to install Zephyr and all the requirements to build it.
+There is also the nRF Connect for VS Code Extension that turns VS Code
+into an IDE for developing applications, including flashing and debugging.
+
+Another reason is if you are trying to support a Nordic device that has
+drivers which are not yet available in the upstream Zephyr tree, or a
+development kit where the board definition files are not available. 
+
+To install the nRF Connect SDK, follow the instructions here:
+https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/installation/assistant.html 
+
+* Open VS Code, and open the nRF Connect extension.
+* Click on "Open an existing application" and navigate to <micropython install>/ports/zephyr
+* Now the Zephyr port will be listed as an Application
+* Add a build configuration
+    * Select the board to build for
+    * Add Kconfig fragments (such as board/<board file>, or overlay-bluetooth.conf)
+    * Click on Build configuration
+
+Now you can use the nRF Connect extension to flash to your board.
+
