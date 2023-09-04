@@ -170,6 +170,16 @@ Methods
     ``wmm`` and ``listen_interval`` parameters can only be changed when the device is
     not connected to an access point.
 
+.. method:: WLAN.twt(wake_time, interval[, callback])
+            WLAN.twt('teardown')
+
+    Set Target Wake Time. If the Access Point supports it, this allows the Station and
+    Access Point to negotiate how long to remain asleep (``interval``), and for how long
+    to be awake (``wake_time``). The callback is not yet implemented.
+
+    To stop using TWT and go back to the power savings settings in ``config``, use the
+    teardown command.
+
 Constants
 ---------
 
