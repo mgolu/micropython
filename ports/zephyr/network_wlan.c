@@ -64,7 +64,9 @@ static bool mdns_initialised = false;
 static struct net_mgmt_event_callback wifi_mgmt_cb;
 
 K_SEM_DEFINE(scan_sem, 0, 1);
+K_SEM_DEFINE(twt_sem, 0, 1);
 mp_obj_t *scan_list;
+mp_obj_t *twt_resp;
 
 STATIC mp_obj_t zephyr_initialize() {
     static int initialized = 0;
@@ -107,6 +109,38 @@ static void handle_wifi_scan_result(struct net_mgmt_event_callback *cb) {
     mp_obj_list_append(*scan_list, MP_OBJ_FROM_PTR(ap));
 }
 
+static void handle_wifi_twt_result(struct net_mgmt_event_callback *cb) {
+    const struct wifi_twt_params *resp = (const struct wifi_twt_params *)cb->info;
+
+    LOG_INF("TWT callback");
+
+    if (resp->resp_status == WIFI_TWT_RESP_RECEIVED) {
+        // Successful response
+        if (resp->operation == WIFI_TWT_SETUP) {
+            switch (resp->setup_cmd) {
+                case WIFI_TWT_SETUP_CMD_ACCEPT: {
+                    // TWT proposal accepted
+                    twt_resp[0] = mp_obj_new_int(0);
+                    twt_resp[1] = mp_obj_new_int(resp->setup.twt_wake_interval);
+                    twt_resp[2] = mp_obj_new_int_from_ll(resp->setup.twt_interval);
+                    break;
+                }
+                case WIFI_TWT_SETUP_CMD_GROUPING:
+                case WIFI_TWT_SETUP_CMD_ALTERNATE:
+                case WIFI_TWT_SETUP_CMD_DICTATE:
+                case WIFI_TWT_SETUP_CMD_REJECT:
+                // TODO: handle other cases
+                    twt_resp[0] = mp_obj_new_int(-1);
+                    break;
+            }
+        }
+    } else {
+        // Timed out
+        twt_resp[0] = mp_obj_new_int(-2);
+    }
+    k_sem_give(&twt_sem);
+}
+
 static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
     uint32_t mgmt_event, struct net_if *iface) {
     switch (mgmt_event) {
@@ -116,7 +150,6 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
         case NET_EVENT_WIFI_DISCONNECT_RESULT:
             if (wifi_sta_connected) {
                 wifi_sta_connected = false;
-                LOG_INF("Received Disconnected");
             }
             break;
         case NET_EVENT_WIFI_SCAN_RESULT:
@@ -127,6 +160,12 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
             break;
         case NET_EVENT_WIFI_IFACE_STATUS:
             LOG_INF("WiFi iface Status event");
+            break;
+        case NET_EVENT_WIFI_TWT:
+            handle_wifi_twt_result(cb);
+            break;
+        case NET_EVENT_WIFI_TWT_SLEEP_STATE:
+            // TODO: send callback to user
             break;
         default:
             break;
@@ -142,7 +181,8 @@ void zephyr_initialise_wifi() {
             NET_EVENT_WIFI_DISCONNECT_RESULT |
             NET_EVENT_WIFI_SCAN_RESULT |
             NET_EVENT_WIFI_SCAN_DONE |
-            NET_EVENT_WIFI_IFACE_STATUS);
+            NET_EVENT_WIFI_IFACE_STATUS |
+            NET_EVENT_WIFI_TWT );
 
         net_mgmt_add_event_callback(&wifi_mgmt_cb);
         wifi_initialized = 1;
@@ -563,6 +603,83 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_config_obj, 1, network_wlan_config);
 
+STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
+    /* There are a lot of variables that can be set to customize TWT flows, including
+     * having mutltiple flows per connection. See more details here:
+     * https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/device_guides/working_with_nrf/nrf70/developing/powersave.html#target-wake-time-twt
+     * 
+     * For our purposes, it's probably enough to pick some defaults that make sense
+     * for a single flow, and let the user customize the two main ones (wake period and duration).
+     */
+    wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    if (self->if_id != MOD_NETWORK_STA_IF) {
+        mp_raise_NotImplementedError(MP_ERROR_TEXT("TWT valid only on Station interface"));
+    }
+
+    struct net_if *iface = net_if_get_default();
+	struct wifi_twt_params params = { 0 };
+
+    if (n_args == 2) {
+        switch (mp_obj_str_get_qstr(args[1])) {
+            case MP_QSTR_teardown: {
+                params.operation = WIFI_TWT_TEARDOWN;
+                params.teardown.teardown_all = 1;
+                if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
+                    mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed. Reason: %s"), get_ps_config_err_code_str(params.fail_reason));
+                }
+                return mp_const_true;
+            }
+            default:
+                mp_raise_ValueError(MP_ERROR_TEXT("unknown config param"));
+        }
+    } else if (n_args > 2) {
+        if (mp_obj_get_int(args[1]) > WIFI_MAX_TWT_WAKE_INTERVAL_US ||
+            mp_obj_get_int(args[1]) == 0) {
+                mp_raise_ValueError("Invalid wake duration value");
+        }
+        if (mp_obj_get_int(args[2]) > WIFI_MAX_TWT_INTERVAL_US ||
+            mp_obj_get_int(args[2]) == 0) {
+                mp_raise_ValueError("Invalid wake interval value");
+        }
+        struct wifi_ps_config config = { 0 };
+        if (net_mgmt(NET_REQUEST_WIFI_PS_CONFIG, iface, &config, sizeof(config))) {
+            mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed to get configuration"));
+        }
+        if (config.num_twt_flows > 0) {
+            mp_raise_ValueError("TWT already configured");
+        }
+        params.operation = WIFI_TWT_SETUP;
+        params.negotiation_type = WIFI_TWT_INDIVIDUAL;
+        params.setup_cmd = WIFI_TWT_SETUP_CMD_DEMAND; // For now demand because we're not accepting other values for negotiation
+        params.dialog_token = 1;
+        params.flow_id = 0;
+        params.setup.responder = 0;
+        params.setup.implicit = 1;
+        params.setup.trigger = 1;
+        params.setup.announce = 0;
+        params.setup.twt_wake_interval = mp_obj_get_int(args[1]);
+        params.setup.twt_interval = mp_obj_get_int(args[2]);
+        mp_obj_t twt_resp_items[3];
+        twt_resp = twt_resp_items;
+        if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
+            mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed. Reason: %s"), get_ps_config_err_code_str(params.fail_reason));
+        }
+        MP_THREAD_GIL_EXIT();
+        k_sem_take(&twt_sem, K_FOREVER);
+        MP_THREAD_GIL_ENTER();
+
+        if (mp_obj_get_int(twt_resp_items[0]) == 0) {
+            if (n_args == 4) {
+                // TODO: register callback to handle wifi_twt_sleep_state interrupts
+            }
+            return mp_obj_new_tuple(3, twt_resp_items);
+        }
+        return mp_obj_new_tuple(1, twt_resp_items);
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_wlan_twt_obj, 2, 3, network_wlan_twt);
+
 STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&network_wlan_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_wlan_connect_obj) },
@@ -572,6 +689,7 @@ STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_wlan_isconnected_obj) },
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_wlan_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_ifconfig), MP_ROM_PTR(&network_ifconfig_obj) },
+    { MP_ROM_QSTR(MP_QSTR_twt), MP_ROM_PTR(&network_wlan_twt_obj) },
 
     // Constants
     { MP_ROM_QSTR(MP_QSTR_PM_NONE), MP_ROM_INT(WIFI_PS_DISABLED) },
