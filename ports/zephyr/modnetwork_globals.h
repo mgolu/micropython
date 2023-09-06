@@ -1,4 +1,3 @@
-//{ MP_ROM_QSTR(MP_QSTR___init__), MP_ROM_PTR(&zephyr_network_initialize_obj) },
 
 #if MICROPY_PY_NETWORK_WLAN
 { MP_ROM_QSTR(MP_QSTR_WLAN), MP_ROM_PTR(&zephyr_network_wlan_type) },
@@ -28,5 +27,10 @@
 #endif // MICROPY_PY_NETWORK_WLAN
 
 #if MICROPY_PY_NETWORK_NRF91
-{ MP_ROM_QSTR(MP_QSTR_CELL), MP_ROM_PTR(&zephyr_network_cell_type)},
+{ MP_ROM_QSTR(MP_QSTR_CELL), MP_ROM_PTR(&zephyr_network_cell_type) },
+// Constants
+{ MP_ROM_QSTR(MP_QSTR_LTE_MODE_LTEM), MP_ROM_INT(LTE_MODE_LTEM) },
+{ MP_ROM_QSTR(MP_QSTR_LTE_MODE_NBIOT), MP_ROM_INT(LTE_MODE_NBIOT) },
+{ MP_ROM_QSTR(MP_QSTR_LTE_MODE_GPS), MP_ROM_INT(LTE_MODE_GPS) },
+{ MP_ROM_QSTR(MP_QSTR_PLMN_PREF), MP_ROM_INT(LTE_PLMN_PREF) },
 #endif

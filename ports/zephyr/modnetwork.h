@@ -44,6 +44,17 @@ typedef struct _wlan_if_obj_t {
 } wlan_if_obj_t;
 #endif // MICROPY_PY_NETWORK_WLAN
 
+#if MICROPY_PY_NETWORK_NRF91
+#include <modem/nrf_modem_lib.h>
+#include <modem/lte_lc.h>
+
+#define LTE_MODE_LTEM   1
+#define LTE_MODE_NBIOT  2
+#define LTE_MODE_GPS    4
+#define LTE_PLMN_PREF   4
+
+#endif // MICROPY_PY_NETWORK_NRF91
+
 void usocket_events_deinit(void);
 
 #endif

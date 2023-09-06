@@ -41,7 +41,7 @@
 #include <zephyr/net/socket.h>
 #endif
 
-#define DEBUG_PRINT 0
+#define DEBUG_PRINT 1
 #if DEBUG_PRINT // print debugging info
 #define DEBUG_printf printf
 #else // don't print debugging info
@@ -57,6 +57,9 @@ typedef struct _socket_obj_t {
     #define STATE_CONNECTED 2
     #define STATE_PEER_CLOSED 3
     int8_t state;
+#if CONFIG_NET_SOCKETS_OFFLOAD
+    sa_family_t family;
+#endif
 } socket_obj_t;
 
 STATIC const mp_obj_type_t socket_type;
@@ -78,9 +81,14 @@ STATIC void parse_inet_addr(socket_obj_t *socket, mp_obj_t addr_in, struct socka
     struct sockaddr_in *sockaddr_in = (struct sockaddr_in *)sockaddr;
 
     mp_obj_t *addr_items;
-    mp_obj_get_array_fixed_n(addr_in, 2, &addr_items);
+#if CONFIG_NET_SOCKETS_OFFLOAD
+    sockaddr_in->sin_family = socket->family;
+#else
     void *context = zsock_get_context_object(socket->ctx);
     sockaddr_in->sin_family = net_context_get_family(context);
+#endif
+    size_t address_array_size = (sockaddr_in->sin_family == AF_INET6) ? 4 : 2;
+    mp_obj_get_array_fixed_n(addr_in, address_array_size, &addr_items);
     RAISE_ERRNO(net_addr_pton(sockaddr_in->sin_family, mp_obj_str_get_str(addr_items[0]), &sockaddr_in->sin_addr));
     sockaddr_in->sin_port = htons(mp_obj_get_int(addr_items[1]));
 }
@@ -153,7 +161,9 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 
     socket->ctx = zsock_socket(family, socktype, proto);
     RAISE_SOCK_ERRNO(socket->ctx);
-
+#if CONFIG_NET_SOCKETS_OFFLOAD
+    socket->family = family;
+#endif
     return MP_OBJ_FROM_PTR(socket);
 }
 
@@ -405,12 +415,12 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     if (n_args > 2) {
         family = mp_obj_get_int(args[2]);
     }
-
     getaddrinfo_state_t state;
     // Just validate that it's int
     (void)mp_obj_get_int(port_in);
     state.port = port_in;
     state.result = mp_obj_new_list(0, NULL);
+#if !CONFIG_NET_SOCKETS_OFFLOAD
     k_sem_init(&state.sem, 0, UINT_MAX);
 
     for (int i = 2; i--;) {
@@ -429,12 +439,30 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     if (state.status != 0 && len == 0) {
         mp_raise_OSError(state.status);
     }
+#else // CONFIG_NET_SOCKETS_OFFLOAD
+    struct addrinfo *ai = NULL;
+	struct addrinfo hints = {
+		.ai_family = AF_UNSPEC
+	};
 
+    RAISE_ERRNO(getaddrinfo(host, NULL, &hints, &ai));
+
+    do {
+        mp_obj_tuple_t *tuple = mp_obj_new_tuple(5, NULL);
+        tuple->items[0] = MP_OBJ_NEW_SMALL_INT(ai->ai_addr->sa_family);
+        tuple->items[1] = MP_OBJ_NEW_SMALL_INT(ai->ai_socktype);
+        tuple->items[2] = MP_OBJ_NEW_SMALL_INT(ai->ai_protocol);
+        tuple->items[3] = MP_OBJ_NEW_QSTR(MP_QSTR_);
+        tuple->items[4] = format_inet_addr(ai->ai_addr, state.port);
+        mp_obj_list_append(state.result, MP_OBJ_FROM_PTR(tuple));
+    } while (ai->ai_next != NULL);
+    freeaddrinfo(ai);
+#endif // !CONFIG_NET_SOCKETS_OFFLOAD
     return state.result;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_getaddrinfo_obj, 2, 3, mod_getaddrinfo);
 
-
+#if !CONFIG_NET_SOCKETS_OFFLOAD
 STATIC mp_obj_t pkt_get_info(void) {
     struct k_mem_slab *rx, *tx;
     struct net_buf_pool *rx_data, *tx_data;
@@ -447,6 +475,7 @@ STATIC mp_obj_t pkt_get_info(void) {
     return MP_OBJ_FROM_PTR(t);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(pkt_get_info_obj, pkt_get_info);
+#endif
 
 STATIC const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_socket) },
@@ -464,7 +493,9 @@ STATIC const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_SO_REUSEADDR), MP_ROM_INT(2) },
 
     { MP_ROM_QSTR(MP_QSTR_getaddrinfo), MP_ROM_PTR(&mod_getaddrinfo_obj) },
+#if !CONFIG_NET_SOCKETS_OFFLOAD
     { MP_ROM_QSTR(MP_QSTR_pkt_get_info), MP_ROM_PTR(&pkt_get_info_obj) },
+#endif
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_socket_globals, mp_module_socket_globals_table);
