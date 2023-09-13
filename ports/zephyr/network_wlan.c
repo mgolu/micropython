@@ -49,6 +49,10 @@ LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
 #include <zephyr/net/dns_resolve.h>
 #include <zephyr/net/net_ip.h>
 
+#ifdef CONFIG_WIFI_CREDENTIALS
+#include <net/wifi_credentials.h>
+#endif
+
 STATIC const wlan_if_obj_t wlan_sta_obj;
 STATIC const wlan_if_obj_t wlan_ap_obj;
 
@@ -71,12 +75,31 @@ mp_obj_t *twt_resp;
 STATIC mp_obj_t zephyr_initialize() {
     static int initialized = 0;
     if (!initialized) {
-        LOG_INF("Initializing interface");
         initialized = 1;
     }
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj, zephyr_initialize);
+
+STATIC mp_obj_t wlan_invoke_irq(mp_obj_t arg) {
+    // Send a tuple with the following:
+    // ( self, IRQ event, data tuple)
+    // Can skip the data tuple if there's no data
+    mp_obj_t *items;
+    size_t len;
+    mp_obj_get_array(arg, &len, &items);
+
+    wlan_if_obj_t *self = MP_OBJ_TO_PTR(items[0]);
+    if (self->settings->irq_handler == mp_const_none) {
+        return mp_const_none;
+    }
+    mp_obj_t event = items[1];
+    mp_obj_t data = (len == 3) ? items[2] : mp_const_none;
+
+    mp_call_function_2(self->settings->irq_handler, event, data);
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(wlan_invoke_irq_obj, wlan_invoke_irq);
 
 static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb) {
     const struct wifi_status *status =
@@ -86,13 +109,28 @@ static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb) {
         return;
     }
 
-    if (status->status) {
-        LOG_ERR("Connection failed (%d)", status->status);
-    } else {
-        LOG_INF("Connected");
+    if (!status->status) {
         wifi_sta_connected = true;
     }
 
+    mp_obj_t stat[1] = { MP_OBJ_NEW_SMALL_INT(status->status), };
+    mp_obj_t tuple[3] = {
+        MP_OBJ_FROM_PTR(&wlan_sta_obj),
+        MP_OBJ_NEW_SMALL_INT(MP_WLAN_IRQ_STA_CONNECT),
+        mp_obj_new_tuple(1, stat),
+    };
+    mp_sched_schedule(MP_OBJ_FROM_PTR(&wlan_invoke_irq_obj), mp_obj_new_tuple(3, tuple));
+}
+
+static void handle_wifi_disconnect_result(struct net_mgmt_event_callback *cb) {
+    if (wifi_sta_connected) {
+        wifi_sta_connected = false;
+    }
+    mp_obj_t tuple[2] = {
+        MP_OBJ_FROM_PTR(&wlan_sta_obj),
+        MP_OBJ_NEW_SMALL_INT(MP_WLAN_IRQ_STA_DISCONNECT),
+    };
+    mp_sched_schedule(MP_OBJ_FROM_PTR(&wlan_invoke_irq_obj), mp_obj_new_tuple(2, tuple));
 }
 
 static void handle_wifi_scan_result(struct net_mgmt_event_callback *cb) {
@@ -129,7 +167,7 @@ static void handle_wifi_twt_result(struct net_mgmt_event_callback *cb) {
                 case WIFI_TWT_SETUP_CMD_ALTERNATE:
                 case WIFI_TWT_SETUP_CMD_DICTATE:
                 case WIFI_TWT_SETUP_CMD_REJECT:
-                // TODO: handle other cases
+                    // TODO: handle other cases
                     twt_resp[0] = mp_obj_new_int(-1);
                     break;
             }
@@ -148,9 +186,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
             handle_wifi_connect_result(cb);
             break;
         case NET_EVENT_WIFI_DISCONNECT_RESULT:
-            if (wifi_sta_connected) {
-                wifi_sta_connected = false;
-            }
+            handle_wifi_disconnect_result(cb);
             break;
         case NET_EVENT_WIFI_SCAN_RESULT:
             handle_wifi_scan_result(cb);
@@ -182,11 +218,10 @@ void zephyr_initialise_wifi() {
             NET_EVENT_WIFI_SCAN_RESULT |
             NET_EVENT_WIFI_SCAN_DONE |
             NET_EVENT_WIFI_IFACE_STATUS |
-            NET_EVENT_WIFI_TWT );
+            NET_EVENT_WIFI_TWT);
 
         net_mgmt_add_event_callback(&wifi_mgmt_cb);
         wifi_initialized = 1;
-        LOG_INF("WiFi initialized");
     }
 }
 
@@ -197,8 +232,10 @@ STATIC mp_obj_t network_wlan_make_new(const mp_obj_type_t *type, size_t n_args, 
 
     int idx = (n_args > 0) ? mp_obj_get_int(args[0]) : MOD_NETWORK_STA_IF;
     if (idx == MOD_NETWORK_STA_IF) {
+        wlan_sta_obj.settings->irq_handler = mp_const_none;
         return MP_OBJ_FROM_PTR(&wlan_sta_obj);
     } else if (idx == MOD_NETWORK_AP_IF) {
+        wlan_ap_obj.settings->irq_handler = mp_const_none;
         return MP_OBJ_FROM_PTR(&wlan_ap_obj);
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid WLAN interface identifier"));
@@ -318,7 +355,7 @@ STATIC mp_obj_t network_wlan_status(size_t n_args, const mp_obj_t *args) {
             return mp_const_none;
         }
         uint8_t retval = WIFI_STATE_DISCONNECTED;
-        
+
         switch (iface_status.state) {
             case WIFI_STATE_DISCONNECTED:
             case WIFI_STATE_INTERFACE_DISABLED:
@@ -424,7 +461,7 @@ STATIC mp_obj_t network_ifconfig(size_t n_args, const mp_obj_t *args) {
     if (n_args == 1) {
         struct net_if *iface = net_if_get_default();
         struct dns_resolve_context *ctx = dns_resolve_get_default();
-        
+
         char ip_info[32];
 
         mp_obj_t tuple[4] = {
@@ -453,7 +490,7 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
         enum { config_none, config_ps, config_ap };
         for (size_t i = 0; i < kwargs->alloc; i++) {
             struct wifi_ps_params params;
-            static struct wifi_connect_req_params ap_params;
+            // static struct wifi_connect_req_params ap_params;
             size_t config = config_none;
             if (mp_map_slot_is_filled(kwargs, i)) {
                 switch (mp_obj_str_get_qstr(kwargs->table[i].key)) {
@@ -496,39 +533,39 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
                         config = config_ps;
                         break;
                     }
-                    case MP_QSTR_ssid: {
-                        size_t len;
-                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
-                        ap_params.ssid = s;
-                        ap_params.ssid_length = MIN(len, WIFI_SSID_MAX_LEN);
-                        config = config_ap;
-                        break;
-                    }
-                    case MP_QSTR_security:
-                    case MP_QSTR_authmode: {
-                        ap_params.security = mp_obj_get_int(kwargs->table[i].value);
-                        config = config_ap;
-                        break;
-                    }
-                    case MP_QSTR_key:
-                    case MP_QSTR_password: {
-                        size_t len;
-                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
-                        ap_params.psk = (uint8_t *)s;
-                        ap_params.psk_length = MIN(len, WIFI_PSK_MAX_LEN);
-                        config = config_ap;
-                        break;
-                    }
-                    case MP_QSTR_band: {
-                        ap_params.band = mp_obj_get_int(kwargs->table[i].value);
-                        config = config_ap;
-                        break;
-                    }
-                    case MP_QSTR_channel: {
-                        ap_params.channel = mp_obj_get_int(kwargs->table[i].value);
-                        config = config_ap;
-                        break;
-                    }
+                    /* case MP_QSTR_ssid: {
+                         size_t len;
+                         const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
+                         ap_params.ssid = s;
+                         ap_params.ssid_length = MIN(len, WIFI_SSID_MAX_LEN);
+                         config = config_ap;
+                         break;
+                     }
+                     case MP_QSTR_security:
+                     case MP_QSTR_authmode: {
+                         ap_params.security = mp_obj_get_int(kwargs->table[i].value);
+                         config = config_ap;
+                         break;
+                     }
+                     case MP_QSTR_key:
+                     case MP_QSTR_password: {
+                         size_t len;
+                         const char *s = mp_obj_str_get_data(kwargs->table[i].value, &len);
+                         ap_params.psk = (uint8_t *)s;
+                         ap_params.psk_length = MIN(len, WIFI_PSK_MAX_LEN);
+                         config = config_ap;
+                         break;
+                     }
+                     case MP_QSTR_band: {
+                         ap_params.band = mp_obj_get_int(kwargs->table[i].value);
+                         config = config_ap;
+                         break;
+                     }
+                     case MP_QSTR_channel: {
+                         ap_params.channel = mp_obj_get_int(kwargs->table[i].value);
+                         config = config_ap;
+                         break;
+                     } */
                     default:
                         mp_raise_ValueError("Unknown param");
                 }
@@ -538,7 +575,7 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
                     } else if (net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params))) {
                         mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("%s"), get_ps_config_err_code_str(params.fail_reason));
                     }
-                }
+                }/*
                 if (config == config_ap) {
                     #ifdef CONFIG_WIFI_NRF700X
                     mp_raise_NotImplementedError(MP_ERROR_TEXT("AP not yet implemented on nRF700x"));
@@ -549,7 +586,7 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
                         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("Error configuring AP"));
                         return mp_const_false;
                     }
-                }
+                }*/
             }
         }
         return mp_const_none;
@@ -569,7 +606,7 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
         switch (mp_obj_str_get_qstr(args[1])) {
             case MP_QSTR_pm:
                 return mp_obj_new_int_from_uint(config.ps_params.enabled);
-            case MP_QSTR_wmm: 
+            case MP_QSTR_wmm:
                 return mp_obj_new_int_from_uint(config.ps_params.mode);
             case MP_QSTR_wakeup:
                 return mp_obj_new_int_from_uint(config.ps_params.wakeup_mode);
@@ -607,7 +644,7 @@ STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
     /* There are a lot of variables that can be set to customize TWT flows, including
      * having mutltiple flows per connection. See more details here:
      * https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/device_guides/working_with_nrf/nrf70/developing/powersave.html#target-wake-time-twt
-     * 
+     *
      * For our purposes, it's probably enough to pick some defaults that make sense
      * for a single flow, and let the user customize the two main ones (wake period and duration).
      */
@@ -617,7 +654,7 @@ STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
     }
 
     struct net_if *iface = net_if_get_default();
-	struct wifi_twt_params params = { 0 };
+    struct wifi_twt_params params = { 0 };
 
     if (n_args == 2) {
         switch (mp_obj_str_get_qstr(args[1])) {
@@ -635,11 +672,11 @@ STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
     } else if (n_args > 2) {
         if (mp_obj_get_int(args[1]) > WIFI_MAX_TWT_WAKE_INTERVAL_US ||
             mp_obj_get_int(args[1]) == 0) {
-                mp_raise_ValueError("Invalid wake duration value");
+            mp_raise_ValueError("Invalid wake duration value");
         }
         if (mp_obj_get_int(args[2]) > WIFI_MAX_TWT_INTERVAL_US ||
             mp_obj_get_int(args[2]) == 0) {
-                mp_raise_ValueError("Invalid wake interval value");
+            mp_raise_ValueError("Invalid wake interval value");
         }
         struct wifi_ps_config config = { 0 };
         if (net_mgmt(NET_REQUEST_WIFI_PS_CONFIG, iface, &config, sizeof(config))) {
@@ -680,6 +717,118 @@ STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_wlan_twt_obj, 2, 3, network_wlan_twt);
 
+STATIC mp_obj_t network_wlan_irq(mp_obj_t self_in, mp_obj_t handler_in) {
+    wlan_if_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    if (handler_in != mp_const_none && !mp_obj_is_callable(handler_in)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid handler"));
+    }
+    self->settings->irq_handler = handler_in;
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_wlan_irq_obj, network_wlan_irq);
+
+#ifdef CONFIG_WIFI_CREDENTIALS
+STATIC void each_ssid_cb(void *cb_arg, const char *ssid, size_t ssid_len) {
+    int ret = 0;
+    mp_obj_t *list = (mp_obj_t *)cb_arg;
+    struct wifi_credentials_personal creds = { 0 };
+
+    ret = wifi_credentials_get_by_ssid_personal_struct(ssid, ssid_len, &creds);
+    if (ret) {
+        mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed to load credentials. Reason: %d"), ret);
+    }
+    LOG_INF("SSID: %.*s", ssid_len, ssid);
+    mp_obj_tuple_t *profile = mp_obj_new_tuple(4, NULL);
+    profile->items[0] = mp_obj_new_bytes(ssid, ssid_len); // SSID
+    LOG_INF("Flags: %u", creds.header.flags);
+    profile->items[1] = (creds.header.flags & WIFI_CREDENTIALS_FLAG_BSSID) ? mp_obj_new_bytes(creds.header.bssid, WIFI_MAC_ADDR_LEN) : mp_const_none;   // BSSID
+    LOG_INF("Type: %u", creds.header.type);
+    profile->items[2] = MP_OBJ_NEW_SMALL_INT(creds.header.type); // Auth
+    if ((creds.header.flags & WIFI_CREDENTIALS_FLAG_2_4GHz) && !(creds.header.flags & WIFI_CREDENTIALS_FLAG_5GHz)) {
+        profile->items[3] = MP_OBJ_NEW_SMALL_INT(WIFI_FREQ_BAND_2_4_GHZ);
+    } else if (!(creds.header.flags & WIFI_CREDENTIALS_FLAG_2_4GHz) && (creds.header.flags & WIFI_CREDENTIALS_FLAG_5GHz)) {
+        profile->items[3] = MP_OBJ_NEW_SMALL_INT(WIFI_FREQ_BAND_5_GHZ);
+    } else if (creds.header.flags & (WIFI_CREDENTIALS_FLAG_2_4GHz || WIFI_CREDENTIALS_FLAG_5GHz)) {
+        profile->items[3] = MP_OBJ_NEW_SMALL_INT(__WIFI_FREQ_BAND_AFTER_LAST);
+    } else {
+        profile->items[3] = MP_OBJ_NEW_SMALL_INT(WIFI_FREQ_BAND_UNKNOWN);
+    }
+    mp_obj_list_append(*list, MP_OBJ_FROM_PTR(profile));
+}
+
+STATIC void delete_all_ssid_cb(void *cb_arg, const char *ssid, size_t ssid_len) {
+    wifi_credentials_delete_by_ssid(ssid, ssid_len);
+}
+
+STATIC mp_obj_t network_wlan_profile(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
+
+    switch (mp_obj_str_get_qstr(args[1])) {
+        case MP_QSTR_list: {
+            mp_obj_t list = mp_obj_new_list(0, NULL);
+            wifi_credentials_for_each_ssid(each_ssid_cb, &list);
+            return list;
+        }
+        case MP_QSTR_delete_all: {
+            wifi_credentials_for_each_ssid(delete_all_ssid_cb, NULL);
+            return mp_const_none;
+        }
+        case MP_QSTR_add: {
+            struct wifi_credentials_personal config_buf = { 0 };
+            config_buf.header.flags |= (WIFI_CREDENTIALS_FLAG_2_4GHz | WIFI_CREDENTIALS_FLAG_5GHz);
+            config_buf.header.type = WIFI_SECURITY_TYPE_UNKNOWN;
+
+            for (size_t i = 0; i < kwargs->alloc; i++) {
+                switch (mp_obj_str_get_qstr(kwargs->table[i].key)) {
+                    case MP_QSTR_ssid: {
+                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &config_buf.header.ssid_len);
+                        memcpy(config_buf.header.ssid, s, config_buf.header.ssid_len);
+                        break;
+                    }
+                    case MP_QSTR_bssid: {
+                        size_t bssid_len;
+                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &bssid_len);
+                        if (bssid_len != 0 && bssid_len != WIFI_MAC_ADDR_LEN) {
+                            mp_raise_ValueError("BSSID must be empty or 6 bytes");
+                        }
+                        if (bssid_len == WIFI_MAC_ADDR_LEN) {
+                            config_buf.header.flags |= WIFI_CREDENTIALS_FLAG_BSSID;
+                            memcpy(config_buf.header.bssid, s, WIFI_MAC_ADDR_LEN);
+                        }
+                        break;
+                    }
+                    case MP_QSTR_auth: {
+                        config_buf.header.type = mp_obj_get_int(kwargs->table[i].value);
+                        break;
+                    }
+                    case MP_QSTR_key: {
+                        const char *s = mp_obj_str_get_data(kwargs->table[i].value, &config_buf.password_len);
+                        memcpy(config_buf.password, s, MIN(config_buf.password_len, WIFI_CREDENTIALS_MAX_PASSWORD_LEN));
+                        break;
+                    }
+                }
+            }
+            if (config_buf.header.ssid_len == 0) {
+                mp_raise_ValueError("ssid: cannot be empty string");
+            }
+            if (config_buf.header.type == WIFI_SECURITY_TYPE_UNKNOWN) {
+                mp_raise_ValueError("auth: value is required");
+            }
+            if ((config_buf.header.type == WIFI_SECURITY_TYPE_PSK || config_buf.header.type == WIFI_SECURITY_TYPE_PSK) &&
+                (config_buf.password_len == 0 || config_buf.password_len > WIFI_PSK_MAX_LEN)) {
+                mp_raise_ValueError("Invalid key length for PSK type");
+            }
+            if ((config_buf.header.type == WIFI_SECURITY_TYPE_SAE) && (config_buf.password_len == 0 || config_buf.password_len > CONFIG_WIFI_CREDENTIALS_SAE_PASSWORD_LENGTH)) {
+                mp_raise_ValueError("Invalid key length for SAE type");
+            }
+            wifi_credentials_set_personal_struct(&config_buf);
+            break;
+        }
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_profile_obj, 2, network_wlan_profile);
+#endif // CONFIG_WIFI_CREDENTIALS
+
 STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&network_wlan_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_wlan_connect_obj) },
@@ -690,6 +839,10 @@ STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_wlan_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_ifconfig), MP_ROM_PTR(&network_ifconfig_obj) },
     { MP_ROM_QSTR(MP_QSTR_twt), MP_ROM_PTR(&network_wlan_twt_obj) },
+    { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_wlan_irq_obj) },
+    #ifdef CONFIG_WIFI_CREDENTIALS
+    { MP_ROM_QSTR(MP_QSTR_profile), MP_ROM_PTR(&network_wlan_profile_obj) },
+    #endif // CONFIG_WIFI_CREDENTIALS
 
     // Constants
     { MP_ROM_QSTR(MP_QSTR_PM_NONE), MP_ROM_INT(WIFI_PS_DISABLED) },
@@ -706,7 +859,10 @@ MP_DEFINE_CONST_OBJ_TYPE(
     locals_dict, &wlan_if_locals_dict
     );
 
-STATIC const wlan_if_obj_t wlan_sta_obj = {{&zephyr_network_wlan_type}, MOD_NETWORK_STA_IF};
-STATIC const wlan_if_obj_t wlan_ap_obj = {{&zephyr_network_wlan_type}, MOD_NETWORK_AP_IF};
+STATIC mp_obj_network_wlan_settings_t wlan_sta_settings;
+STATIC mp_obj_network_wlan_settings_t wlan_ap_settings;
+
+STATIC const wlan_if_obj_t wlan_sta_obj = {{&zephyr_network_wlan_type}, MOD_NETWORK_STA_IF, &wlan_sta_settings};
+STATIC const wlan_if_obj_t wlan_ap_obj = {{&zephyr_network_wlan_type}, MOD_NETWORK_AP_IF, &wlan_ap_settings};
 
 #endif // MICROPY_PY_NETWORK_WLAN

@@ -27,10 +27,19 @@
 #define MICROPY_INCLUDED_ZEPHYR_MODNETWORK_H
 
 #include <zephyr/net/wifi.h>
+#include "py/ringbuf.h"
+
+#define MP_WLAN_IRQ_STA_CONNECT         (1)
+#define MP_WLAN_IRQ_STA_DISCONNECT      (2)
+
+typedef struct {
+    mp_obj_t irq_handler;
+} mp_obj_network_wlan_settings_t;
 
 typedef struct _wlan_if_obj_t {
     mp_obj_base_t base;
     int if_id;
+    mp_obj_network_wlan_settings_t *settings;
 } wlan_if_obj_t;
 
 MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);

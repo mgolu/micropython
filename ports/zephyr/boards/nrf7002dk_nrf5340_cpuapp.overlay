@@ -8,6 +8,7 @@
 	chosen {
 		nordic,pm-ext-flash = &mx25r64;
 		zephyr,code-partition = &app;
+		micropython,filesystem = &mp_filesystem;
 	};
 };
 
@@ -38,9 +39,13 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		storage_partition: partition@0 {
-			label = "storage";
-			reg = <0x0 0x800000>;
+		mp_filesystem: partition@0 {
+			label = "filesystem";
+			reg = <0x0 0x7f0000>;
+		};
+		settings_storage: partition@7f0000 {
+			label = "settings";
+			reg = <0x7f0000 0x10000>;
 		};
 	};
 };
