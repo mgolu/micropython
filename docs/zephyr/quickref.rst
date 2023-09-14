@@ -16,6 +16,35 @@ Running MicroPython
 
 See the corresponding section of the tutorial: :ref:`intro`.
 
+Networking
+----------
+
+WLAN
+^^^^
+The port follows the standard API. For Zephyr devices that support the
+Credential Storage, such as the nRF700x devices, there is also an API to
+manage stored credentials.
+
+.. method:: WLAN.credential(action[, parameters])
+
+    Action can be:
+    * ``list``: To list the stored credentials.
+    * ``delete_all``: To delete the store credentials.
+    * ``add``: To add a new credential. Parameters must include ssid, auth, and key
+    * ``connect``: Connect to a stored credential. Parameter must include ssid.
+
+    While the Wi-Fi specification allows for empty SSIDs, the credential storage
+    system doesn't allow that for now.
+
+    Usage example:
+     import network
+     
+     nic = network.WLAN(network.STA_IF)
+     nic.credential('list')
+     nic.credential('add', ssid='mynetwork', auth=network.AUTH_WPA2_PSK, key='mypassword123')
+     nic.credential('connect', 'mynetwork')
+
+
 Delay and timing
 ----------------
 

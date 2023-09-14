@@ -163,6 +163,9 @@ static void handle_wifi_twt_result(struct net_mgmt_event_callback *cb) {
                     twt_resp[2] = mp_obj_new_int_from_ll(resp->setup.twt_interval);
                     break;
                 }
+                case WIFI_TWT_SETUP_CMD_REQUEST:
+                case WIFI_TWT_SETUP_CMD_SUGGEST:
+                case WIFI_TWT_SETUP_CMD_DEMAND:
                 case WIFI_TWT_SETUP_CMD_GROUPING:
                 case WIFI_TWT_SETUP_CMD_ALTERNATE:
                 case WIFI_TWT_SETUP_CMD_DICTATE:
@@ -314,7 +317,6 @@ STATIC mp_obj_t network_wlan_connect(size_t n_args, const mp_obj_t *pos_args, mp
 
     if (net_mgmt(NET_REQUEST_WIFI_CONNECT, iface,
         &cnx_params, sizeof(struct wifi_connect_req_params))) {
-        LOG_ERR("Connection request failed");
 
         return mp_obj_new_bool(false);
     }
@@ -728,6 +730,33 @@ STATIC mp_obj_t network_wlan_irq(mp_obj_t self_in, mp_obj_t handler_in) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_wlan_irq_obj, network_wlan_irq);
 
 #ifdef CONFIG_WIFI_CREDENTIALS
+struct profile_connect_ssid {
+    const char *ssid;
+    size_t ssid_len;
+};
+
+STATIC void connect_stored_profiles_cb(void *cb_arg, const char *ssid, size_t ssid_len) {
+    struct profile_connect_ssid *data = (struct profile_connect_ssid *)cb_arg;
+    if ( (data->ssid_len == ssid_len) && memcmp(data->ssid, ssid, ssid_len) == 0) {
+        struct wifi_credentials_personal creds = { 0 };
+        static struct wifi_connect_req_params cnx_params;
+        struct net_if *iface = net_if_get_default();
+
+        wifi_credentials_get_by_ssid_personal_struct(ssid, ssid_len, &creds);
+        cnx_params.ssid = ssid;
+        cnx_params.ssid_length = ssid_len;
+        cnx_params.security = creds.header.type;
+        if (cnx_params.security != WIFI_SECURITY_TYPE_NONE) {
+            cnx_params.psk = creds.password;
+            cnx_params.psk_length = creds.password_len;
+        }
+        cnx_params.timeout = SYS_FOREVER_MS;
+        cnx_params.channel = WIFI_CHANNEL_ANY;
+        cnx_params.mfp = WIFI_MFP_OPTIONAL;
+        net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &cnx_params, sizeof(struct wifi_connect_req_params));
+    }
+}
+
 STATIC void each_ssid_cb(void *cb_arg, const char *ssid, size_t ssid_len) {
     int ret = 0;
     mp_obj_t *list = (mp_obj_t *)cb_arg;
@@ -737,12 +766,9 @@ STATIC void each_ssid_cb(void *cb_arg, const char *ssid, size_t ssid_len) {
     if (ret) {
         mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed to load credentials. Reason: %d"), ret);
     }
-    LOG_INF("SSID: %.*s", ssid_len, ssid);
     mp_obj_tuple_t *profile = mp_obj_new_tuple(4, NULL);
     profile->items[0] = mp_obj_new_bytes(ssid, ssid_len); // SSID
-    LOG_INF("Flags: %u", creds.header.flags);
     profile->items[1] = (creds.header.flags & WIFI_CREDENTIALS_FLAG_BSSID) ? mp_obj_new_bytes(creds.header.bssid, WIFI_MAC_ADDR_LEN) : mp_const_none;   // BSSID
-    LOG_INF("Type: %u", creds.header.type);
     profile->items[2] = MP_OBJ_NEW_SMALL_INT(creds.header.type); // Auth
     if ((creds.header.flags & WIFI_CREDENTIALS_FLAG_2_4GHz) && !(creds.header.flags & WIFI_CREDENTIALS_FLAG_5GHz)) {
         profile->items[3] = MP_OBJ_NEW_SMALL_INT(WIFI_FREQ_BAND_2_4_GHZ);
@@ -760,8 +786,8 @@ STATIC void delete_all_ssid_cb(void *cb_arg, const char *ssid, size_t ssid_len) 
     wifi_credentials_delete_by_ssid(ssid, ssid_len);
 }
 
-STATIC mp_obj_t network_wlan_profile(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
-
+STATIC mp_obj_t network_wlan_credential(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
+    //wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
     switch (mp_obj_str_get_qstr(args[1])) {
         case MP_QSTR_list: {
             mp_obj_t list = mp_obj_new_list(0, NULL);
@@ -823,10 +849,22 @@ STATIC mp_obj_t network_wlan_profile(size_t n_args, const mp_obj_t *args, mp_map
             wifi_credentials_set_personal_struct(&config_buf);
             break;
         }
+        case MP_QSTR_connect: {
+            if (n_args < 3) {
+                mp_raise_ValueError("Must pass SSID");
+            }
+            size_t ssid_len;
+            const char *s = mp_obj_str_get_data(args[2], &ssid_len);
+            struct profile_connect_ssid data;
+            data.ssid = s;
+            data.ssid_len = ssid_len;
+            wifi_credentials_for_each_ssid(connect_stored_profiles_cb, &data);
+            break;
+        }
     }
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_profile_obj, 2, network_wlan_profile);
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_wlan_credential_obj, 2, network_wlan_credential);
 #endif // CONFIG_WIFI_CREDENTIALS
 
 STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
@@ -841,7 +879,7 @@ STATIC const mp_rom_map_elem_t wlan_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_twt), MP_ROM_PTR(&network_wlan_twt_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_wlan_irq_obj) },
     #ifdef CONFIG_WIFI_CREDENTIALS
-    { MP_ROM_QSTR(MP_QSTR_profile), MP_ROM_PTR(&network_wlan_profile_obj) },
+    { MP_ROM_QSTR(MP_QSTR_credential), MP_ROM_PTR(&network_wlan_credential_obj) },
     #endif // CONFIG_WIFI_CREDENTIALS
 
     // Constants
