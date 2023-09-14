@@ -386,6 +386,8 @@ STATIC ssize_t attr_write(struct bt_conn *conn, const struct bt_gatt_attr *attr,
     }
     if (entry->append) {
         offset += entry->data_len;
+    } else {
+        entry->data_len = 0;
     }
 
     ssize_t write_len = MIN(entry->data_alloc - offset, len);
