@@ -3,8 +3,7 @@
  *
  * The MIT License (MIT)
  *
- * Copyright (c) 2013, 2014 Damien P. George
- * Copyright (c) 2016 Linaro Limited
+ * Copyright (c) 2023 Jim Mussared
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,14 +24,30 @@
  * THE SOFTWARE.
  */
 
-#include <zephyr/kernel.h>
-
+#include <stdint.h>
 #include "py/obj.h"
+#include "py/mphal.h"
 
-STATIC mp_obj_t mp_time_time_get(void) {
-    /* The absence of FP support is deliberate. The Zephyr port uses
-     * single precision floats so the fraction component will start to
-     * lose precision on devices with a long uptime.
-     */
-    return mp_obj_new_int(k_uptime_get() / 1000);
-}
+#include "modmachine.h"
+
+#define Pin(p_name, p_port_label, p_pin) \
+    { \
+        .base = { &machine_pin_type }, \
+        .name = MP_QSTR_##p_name, \
+        .port = DEVICE_DT_GET(DT_NODELABEL(p_port_label)), \
+        .pin = p_pin, \
+    }
+
+#define SPI(dt_label) \
+    { \
+        .base = { &machine_spi_type }, \
+        .name = MP_QSTR_##dt_label, \
+        .device = DEVICE_DT_GET(DT_NODELABEL(dt_label)), \
+    }
+
+#define I2C(dt_label) \
+    { \
+        .base = { &machine_i2c_type }, \
+        .name = MP_QSTR_##dt_label, \
+        .device = DEVICE_DT_GET(DT_NODELABEL(dt_label)), \
+    }

@@ -29,7 +29,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/i2c.h>
 
 #include "py/runtime.h"
@@ -41,15 +41,23 @@
 
 #if MICROPY_PY_MACHINE_I2C
 
-typedef struct _machine_hard_i2c_obj_t {
-    mp_obj_base_t base;
-    const struct device *dev;
-    bool restart;
-} machine_hard_i2c_obj_t;
-
 STATIC void machine_hard_i2c_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
-    machine_hard_i2c_obj_t *self = self_in;
-    mp_printf(print, "%s", self->dev->name);
+    machine_hard_i2c_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_printf(print, "%s", self->device->name);
+}
+
+STATIC machine_hard_i2c_obj_t *find_i2c_instance(mp_obj_t dt_label) {
+    if (mp_obj_is_type(dt_label, &machine_i2c_type)) {
+        return MP_OBJ_TO_PTR(dt_label);
+    }
+
+    for (size_t i = 0; i < MP_ARRAY_SIZE(machine_i2c_obj_table); ++i) {
+        if (mp_obj_equal(MP_OBJ_NEW_QSTR(machine_i2c_obj_table[i].name), dt_label)) {
+            return &machine_i2c_obj_table[i];
+        }
+    }
+
+    mp_raise_ValueError(MP_ERROR_TEXT("device not found"));
 }
 
 mp_obj_t machine_hard_i2c_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
@@ -65,12 +73,7 @@ mp_obj_t machine_hard_i2c_make_new(const mp_obj_type_t *type, size_t n_args, siz
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all_kw_array(n_args, n_kw, all_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
 
-    const char *dev_name = mp_obj_str_get_str(args[ARG_id].u_obj);
-    const struct device *dev = device_get_binding(dev_name);
-
-    if (dev == NULL) {
-        mp_raise_ValueError(MP_ERROR_TEXT("device not found"));
-    }
+    machine_hard_i2c_obj_t *self = find_i2c_instance(args[ARG_id].u_obj);
 
     if ((args[ARG_scl].u_obj != MP_OBJ_NULL) || (args[ARG_sda].u_obj != MP_OBJ_NULL)) {
         mp_raise_NotImplementedError(MP_ERROR_TEXT("explicit choice of scl/sda is not implemented"));
@@ -84,8 +87,6 @@ mp_obj_t machine_hard_i2c_make_new(const mp_obj_type_t *type, size_t n_args, siz
         mp_raise_NotImplementedError(MP_ERROR_TEXT("explicit choice of timeout is not implemented"));
     }
 
-    machine_hard_i2c_obj_t *self = mp_obj_malloc(machine_hard_i2c_obj_t, &machine_i2c_type);
-    self->dev = dev;
     self->restart = false;
 
     return MP_OBJ_FROM_PTR(self);
@@ -117,7 +118,7 @@ STATIC int machine_hard_i2c_transfer_single(mp_obj_base_t *self_in, uint16_t add
         self->restart = true;
     }
 
-    ret = i2c_transfer(self->dev, &msg, 1, addr);
+    ret = i2c_transfer(self->device, &msg, 1, addr);
     return (ret < 0) ? -MP_EIO : len;
 }
 

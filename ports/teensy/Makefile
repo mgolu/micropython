@@ -1,7 +1,7 @@
 include ../../py/mkenv.mk
 
 # qstr definitions (must come before including py.mk)
-QSTR_DEFS = qstrdefsport.h $(GEN_PINS_QSTR)
+QSTR_DEFS = qstrdefsport.h
 
 # MicroPython feature configurations
 MICROPY_ROM_TEXT_COMPRESSION ?= 1
@@ -21,9 +21,6 @@ MAKE_MEMZIP = $(TOP)/shared/memzip/make-memzip.py
 ifeq ($(MEMZIP_DIR),)
 MEMZIP_DIR = memzip_files
 endif
-
-$(BUILD)/memzip-files.o: $(BUILD)/memzip-files.c
-	$(call compile_c)
 
 $(BUILD)/memzip-files.c: $(shell find ${MEMZIP_DIR} -type f)
 	@$(ECHO) "Creating $@"
@@ -72,9 +69,7 @@ AF_FILE = mk20dx256_af.csv
 PREFIX_FILE = mk20dx256_prefix.c
 GEN_PINS_SRC = $(BUILD)/pins_gen.c
 GEN_PINS_HDR = $(HEADER_BUILD)/pins.h
-GEN_PINS_QSTR = $(BUILD)/pins_qstr.h
 GEN_PINS_AF_CONST = $(HEADER_BUILD)/pins_af_const.h
-GEN_PINS_AF_PY = $(BUILD)/pins_af.py
 
 CFLAGS_TEENSY = -DF_CPU=96000000 -DUSB_SERIAL -D__MK20DX256__
 CFLAGS_CORTEX_M4 = -mthumb -mtune=cortex-m4 -mcpu=cortex-m4 -msoft-float -mfloat-abi=soft -fsingle-precision-constant -Wdouble-promotion $(CFLAGS_TEENSY)
@@ -209,10 +204,7 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 	$(Q)$(OBJCOPY) -O ihex -R .eeprom "$<" "$@"
 
 # List of sources for qstr extraction
-SRC_QSTR += $(SRC_C) $(STM_SRC_C) $(SHARED_SRC_C)
-# Append any auto-generated sources that are needed by sources listed in
-# SRC_QSTR
-SRC_QSTR_AUTO_DEPS +=
+SRC_QSTR += $(SRC_C) $(STM_SRC_C) $(SHARED_SRC_C) $(GEN_PINS_SRC)
 
 # Making OBJ use an order-only dependency on the generated pins.h file
 # has the side effect of making the pins.h file before we actually compile
@@ -223,12 +215,10 @@ $(OBJ): | $(HEADER_BUILD)/pins.h
 
 # Use a pattern rule here so that make will only call make-pins.py once to make
 # both pins_$(BOARD).c and pins.h
-$(BUILD)/%_gen.c $(HEADER_BUILD)/%.h $(HEADER_BUILD)/%_af_const.h $(BUILD)/%_qstr.h: teensy_%.csv $(MAKE_PINS) $(AF_FILE) $(PREFIX_FILE) | $(HEADER_BUILD)
+$(BUILD)/%_gen.c $(HEADER_BUILD)/%.h $(HEADER_BUILD)/%_af_const.h: teensy_%.csv $(MAKE_PINS) $(AF_FILE) $(PREFIX_FILE) | $(HEADER_BUILD)
 	$(ECHO) "Create $@"
-	$(Q)$(PYTHON) $(MAKE_PINS) --board $(BOARD_PINS) --af $(AF_FILE) --prefix $(PREFIX_FILE) --hdr $(GEN_PINS_HDR) --qstr $(GEN_PINS_QSTR) --af-const $(GEN_PINS_AF_CONST) --af-py $(GEN_PINS_AF_PY) > $(GEN_PINS_SRC)
-
-$(GEN_PINS_SRC:.c=.o): $(GEN_PINS_SRC)
-	$(call compile_c)
+	$(Q)$(PYTHON) $(MAKE_PINS) --board-csv $(BOARD_PINS) --af-csv $(AF_FILE) --prefix $(PREFIX_FILE) \
+	    --output-source $(GEN_PINS_SRC) --output-header $(GEN_PINS_HDR) --output-af-const $(GEN_PINS_AF_CONST)
 
 $(BUILD)/%.pp: $(BUILD)/%.c
 	$(ECHO) "PreProcess $<"
