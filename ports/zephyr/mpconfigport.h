@@ -36,7 +36,14 @@
 #define MICROPY_HEAP_SIZE (16 * 1024)
 #endif
 
-#define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_CORE_FEATURES)
+#define MP_SSIZE_MAX (0x7fffffff)
+
+#define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_EXTRA_FEATURES)
+
+#define MICROPY_PY_SELECT (0)
+#define MICROPY_PY_IO               (0)
+#define MICROPY_PY_JSON             (0)
+#define MICROPY_PY_SYS_STDFILES     (0)
 
 // Required
 #define MICROPY_ENABLE_GC (1)
@@ -67,18 +74,22 @@
 #define MICROPY_PY_MACHINE_SPI_LSB (SPI_TRANSFER_LSB)
 #define MICROPY_PY_MACHINE_PIN_MAKE_NEW mp_pin_make_new
 
-// #ifdef CONFIG_NETWORKING
-// // If we have networking, we likely want errno comfort
-// #define MICROPY_PY_ERRNO (1)
-// #define MICROPY_PY_SOCKET (1)
-// #endif
-// #ifdef CONFIG_BT
-// #define MICROPY_PY_BLUETOOTH (1)
-// #ifdef CONFIG_BT_CENTRAL
-// #define MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE (1)
-// #endif
-// #define MICROPY_PY_BLUETOOTH_ENABLE_GATT_CLIENT (0)
-// #endif
+#define MICROPY_PY_STRUCT           (1)
+
+#ifdef CONFIG_NETWORKING
+#define MICROPY_PY_USOCKET_ZEPHYR (1)
+#endif
+#ifdef CONFIG_BT
+#define MICROPY_PY_BUILTINS_MEMORYVIEW (1)
+#define MICROPY_PY_BLUETOOTH (1)
+#ifdef CONFIG_BT_CENTRAL
+#define MICROPY_PY_BLUETOOTH_ENABLE_CENTRAL_MODE (1)
+#endif
+#ifdef CONFIG_BT_SMP
+#define MICROPY_PY_BLUETOOTH_ENABLE_PAIRING_BONDING (1)
+#endif
+#define MICROPY_PY_BLUETOOTH_ENABLE_GATT_CLIENT (0)
+#endif // CONFIG_BT
 
 // fatfs configuration used in ffconf.h
 #define MICROPY_FATFS_ENABLE_LFN (1)
