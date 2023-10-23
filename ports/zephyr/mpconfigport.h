@@ -132,6 +132,17 @@ extern const struct _mp_obj_type_t zephyr_network_wlan_type;
 #define MICROPY_PY_BLUETOOTH_ENABLE_GATT_CLIENT (0)
 #endif // CONFIG_BT
 
+#define MICROPY_PY_TIME_TIME_TIME_NS (1)
+#define MICROPY_PY_TIME_INCLUDEFILE "ports/zephyr/modtime.c"
+#define MICROPY_PY_ZEPHYR           (1)
+#define MICROPY_PY_ZSENSOR          (1)
+#define MICROPY_PY_SYS_MODULES      (0)
+#define MICROPY_LONGINT_IMPL (MICROPY_LONGINT_IMPL_LONGLONG)
+#define MICROPY_FLOAT_IMPL (MICROPY_FLOAT_IMPL_FLOAT)
+#define MICROPY_PY_BUILTINS_COMPLEX (0)
+#define MICROPY_VFS                 (1)
+#define MICROPY_READER_VFS          (MICROPY_VFS)
+
 // fatfs configuration used in ffconf.h
 #define MICROPY_FATFS_ENABLE_LFN (1)
 #define MICROPY_FATFS_LFN_CODE_PAGE 437 // 1=SFN/ANSI 437=LFN/U.S.(OEM)

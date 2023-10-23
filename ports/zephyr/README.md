@@ -111,7 +111,16 @@ boards. Board configuration files appearing in `ports/zephyr/boards/`
 correspond to boards that have been tested with MicroPython and may have
 additional options enabled, like filesystem support.
 
-## Running
+Build with configuration options
+--------------------------------
+
+You can add optional features to the build by using a configuration overlay file.
+For example, to build for the nRF52840DK and enabling Bluetooth support:
+
+    $ west build --board nrf52840dk_nrf52840 --DOVERLAY_CONFIG:STRING="overlay-bluetooth.conf"
+
+Running
+-------
 
 To flash the resulting firmware to your board:
 
