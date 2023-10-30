@@ -575,7 +575,7 @@ STATIC mp_obj_t network_wlan_config(size_t n_args, const mp_obj_t *args, mp_map_
                     if (self->if_id == MOD_NETWORK_AP_IF) {
                         mp_raise_NotImplementedError(MP_ERROR_TEXT("Power config valid only on Station interface"));
                     } else if (net_mgmt(NET_REQUEST_WIFI_PS, iface, &params, sizeof(params))) {
-                        mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("%s"), get_ps_config_err_code_str(params.fail_reason));
+                        mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("%s"), wifi_ps_get_config_err_code_str(params.fail_reason));
                     }
                 }/*
                 if (config == config_ap) {
@@ -664,7 +664,7 @@ STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
                 params.operation = WIFI_TWT_TEARDOWN;
                 params.teardown.teardown_all = 1;
                 if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
-                    mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed. Reason: %s"), get_ps_config_err_code_str(params.fail_reason));
+                    mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed. Reason: %s"), wifi_twt_get_err_code_str(params.fail_reason));
                 }
                 return mp_const_true;
             }
@@ -701,7 +701,7 @@ STATIC mp_obj_t network_wlan_twt(size_t n_args, const mp_obj_t *args) {
         mp_obj_t twt_resp_items[3];
         twt_resp = twt_resp_items;
         if (net_mgmt(NET_REQUEST_WIFI_TWT, iface, &params, sizeof(params))) {
-            mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed. Reason: %s"), get_ps_config_err_code_str(params.fail_reason));
+            mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("Failed. Reason: %s"), wifi_twt_get_err_code_str(params.fail_reason));
         }
         MP_THREAD_GIL_EXIT();
         k_sem_take(&twt_sem, K_FOREVER);
