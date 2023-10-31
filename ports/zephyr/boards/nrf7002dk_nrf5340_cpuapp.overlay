@@ -9,6 +9,7 @@
 		nordic,pm-ext-flash = &mx25r64;
 		zephyr,code-partition = &app;
 		micropython,filesystem = &mp_filesystem;
+		zephyr,console = &cdc_acm_uart0;
 	};
 };
 
@@ -47,5 +48,11 @@
 			label = "settings";
 			reg = <0x7f0000 0x10000>;
 		};
+	};
+};
+
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
 	};
 };
