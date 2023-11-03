@@ -40,9 +40,9 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		mp_filesystem: partition@0 {
+		mp_filesystem: partition@180000 {
 			label = "filesystem";
-			reg = <0x0 0x7f0000>;
+			reg = <0x180000 0x670000>;
 		};
 		settings_storage: partition@7f0000 {
 			label = "settings";
