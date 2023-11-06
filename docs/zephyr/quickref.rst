@@ -31,7 +31,7 @@ manage stored credentials.
     * ``list``: To list the stored credentials.
     * ``delete_all``: To delete the store credentials.
     * ``add``: To add a new credential. Parameters must include ssid, auth, and key
-    * ``connect``: Connect to a stored credential. Parameter must include ssid.
+    * ``connect``: Connect to a stored credential. Parameter must include ssid. Can also include a timeout in seconds.
 
     While the Wi-Fi specification allows for empty SSIDs, the credential storage
     system doesn't allow that for now.

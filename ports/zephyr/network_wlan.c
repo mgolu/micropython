@@ -105,10 +105,6 @@ static void handle_wifi_connect_result(struct net_mgmt_event_callback *cb) {
     const struct wifi_status *status =
         (const struct wifi_status *)cb->info;
 
-    if (wifi_sta_connected) {
-        return;
-    }
-
     if (!status->status) {
         wifi_sta_connected = true;
     }
@@ -733,6 +729,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_wlan_irq_obj, network_wlan_irq);
 struct profile_connect_ssid {
     const char *ssid;
     size_t ssid_len;
+    int timeout;
 };
 
 STATIC void connect_stored_profiles_cb(void *cb_arg, const char *ssid, size_t ssid_len) {
@@ -750,7 +747,7 @@ STATIC void connect_stored_profiles_cb(void *cb_arg, const char *ssid, size_t ss
             cnx_params.psk = creds.password;
             cnx_params.psk_length = creds.password_len;
         }
-        cnx_params.timeout = SYS_FOREVER_MS;
+        cnx_params.timeout = data->timeout;
         cnx_params.channel = WIFI_CHANNEL_ANY;
         cnx_params.mfp = WIFI_MFP_OPTIONAL;
         net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &cnx_params, sizeof(struct wifi_connect_req_params));
@@ -858,6 +855,11 @@ STATIC mp_obj_t network_wlan_credential(size_t n_args, const mp_obj_t *args, mp_
             struct profile_connect_ssid data;
             data.ssid = s;
             data.ssid_len = ssid_len;
+            if (n_args > 3) {
+                data.timeout = mp_obj_get_int(args[3]);
+            } else {
+                data.timeout = SYS_FOREVER_MS;
+            }
             wifi_credentials_for_each_ssid(connect_stored_profiles_cb, &data);
             break;
         }
