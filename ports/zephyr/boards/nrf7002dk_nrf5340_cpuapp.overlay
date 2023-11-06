@@ -9,6 +9,8 @@
 		nordic,pm-ext-flash = &mx25r64;
 		zephyr,code-partition = &app;
 		micropython,filesystem = &mp_filesystem;
+		micropython,skip-main = &button1;
+		zephyr,console = &cdc_acm_uart0;
 	};
 };
 

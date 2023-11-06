@@ -28,7 +28,7 @@ void mp_hal_wait_sem(struct k_sem *sem, uint32_t timeout_ms);
 static struct k_sem uart_sem;
 #define UART_BUFSIZE 256
 static uint8_t uart_ringbuf[UART_BUFSIZE];
-static uint8_t i_get, i_put;
+static uint8_t i_get, i_put, i_size;
 
 static int console_irq_input_hook(uint8_t ch) {
     int i_next = (i_put + 1) & (UART_BUFSIZE - 1);
@@ -43,9 +43,14 @@ static int console_irq_input_hook(uint8_t ch) {
     } else {
         uart_ringbuf[i_put] = ch;
         i_put = i_next;
+        i_size++;
     }
     // printk("%x\n", ch);
     k_sem_give(&uart_sem);
+    // Try to avoid buffer overflows
+    if (i_size > (UART_BUFSIZE - 50)) {
+        k_msleep(1);
+    }
     return 1;
 }
 
@@ -55,6 +60,7 @@ uint8_t zephyr_getchar(void) {
     unsigned int key = irq_lock();
     uint8_t c = uart_ringbuf[i_get++];
     i_get &= UART_BUFSIZE - 1;
+    i_size--;
     irq_unlock(key);
     return c;
 }

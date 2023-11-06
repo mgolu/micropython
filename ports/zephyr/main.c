@@ -39,6 +39,7 @@
 #endif
 
 #include <zephyr/storage/flash_map.h>
+#include <zephyr/drivers/gpio.h>
 
 #include "py/mperrno.h"
 #include "py/builtin.h"
@@ -154,9 +155,24 @@ soft_reset:
     #endif
 
     #if MICROPY_MODULE_FROZEN || MICROPY_VFS
+    #if DT_HAS_CHOSEN(micropython_skip_main)
+    static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_CHOSEN(micropython_skip_main), gpios);
+    if (!device_is_ready(button.port)) {
+        printk("Main skip button device is not ready\n");
+        goto skip_main;
+    }
+    if (gpio_pin_configure_dt(&button, GPIO_INPUT)) {
+        printk("Failed to initialize button\n");
+        goto skip_main;
+    }
+    if (gpio_pin_get_dt(&button) == 1) {
+        goto skip_main;
+    }
+    #endif
     pyexec_file_if_exists("main.py");
     #endif
 
+skip_main:
     for (;;) {
         if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
             if (pyexec_raw_repl() != 0) {
