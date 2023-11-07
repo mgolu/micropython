@@ -174,7 +174,9 @@ soft_reset:
     pyexec_file_if_exists("main.py");
     #endif
 
+#if DT_HAS_CHOSEN(micropython_skip_main)
 skip_main:
+#endif
     for (;;) {
         if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
             if (pyexec_raw_repl() != 0) {

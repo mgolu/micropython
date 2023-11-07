@@ -1,5 +1,6 @@
 
 #if MICROPY_PY_NETWORK_WLAN
+{ MP_ROM_QSTR(MP_QSTR___init__), MP_ROM_PTR(&zephyr_network_initialize_obj) },
 { MP_ROM_QSTR(MP_QSTR_WLAN), MP_ROM_PTR(&zephyr_network_wlan_type) },
 // Constants
 { MP_ROM_QSTR(MP_QSTR_STA_IF), MP_ROM_INT(MOD_NETWORK_STA_IF) },

@@ -156,9 +156,6 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         enum lte_lc_system_mode mode;
                         enum lte_lc_system_mode_preference preference;
                         switch (mp_obj_get_int(items[0])) {
-                            case 0:
-                                mode = LTE_LC_SYSTEM_MODE_NONE;
-                                break;
                             case LTE_MODE_LTEM: // MP_QSTR_LTE_MODE_LTEM
                                 mode = LTE_LC_SYSTEM_MODE_LTEM;
                                 break;
