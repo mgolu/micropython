@@ -99,4 +99,38 @@ Methods
 
        nic.config(mode=(network.LTE_MODE_LTEM | network.LTE_MODE_NBIOT | network.LTE_MODE_GPS, 0))
 
+.. method:: CELL.irq(param=value)
+
+   Set the notification interrupt handler and a mask of which interrupts should be sent. The
+   following parameters are accepted:
+
+   - ``handler``: The function to be called with the interrupt data
+   - ``mask``: The interrupt mask
+   - ``add_mask``: A mask to add interrupts to the ones currently configured
+   - ``remove_mask``: A mask to remove interrupts from the ones currently configured
+
+   For example:
+      nic.irq(handler=function, mask=_IRQ_NW_REG_STATUS | _IRQ_RRC_UPDATE)
+   
+The irq codes are::
+
+    from micropython import const
+   _IRQ_NW_REG_STATUS       = const(0x1)
+   _IRQ_PSM_UPDATE          = const(0x2)
+   _IRQ_EDRX_UPDATE         = const(0x4)
+   _IRQ_RRC_UPDATE          = const(0x8)
+   _IRQ_CELL_UPDATE         = const(0x10)
+   _IRQ_LTE_MODE_UPDATE     = const(0x20)
+   _IRQ_TAU_PRE_WARN        = const(0x40)
+   _IRQ_NEIGHBOR_CELL_MEAS  = const(0x80)
+
+
+In order to save space in the firmware, these constants are not included on the
+module. Add the ones that you need from the list above to your program.
+
+.. method:: CELL.at('at_command')
+
+   Send an AT command directly to the modem. The response from the modem will be returned
+   as a string. Note that for commands that use a `%`, it needs to be sent as `%%`.
+
 

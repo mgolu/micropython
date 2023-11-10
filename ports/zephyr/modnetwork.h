@@ -42,11 +42,20 @@ typedef struct _wlan_if_obj_t {
     int if_id;
     mp_obj_network_wlan_settings_t *settings;
 } wlan_if_obj_t;
+
+MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);
 #endif // MICROPY_PY_NETWORK_WLAN
 
 #if MICROPY_PY_NETWORK_NRF91
-#include <modem/nrf_modem_lib.h>
-#include <modem/lte_lc.h>
+
+#define MP_CELL_IRQ_NW_REG_STATUS       (0x1)
+#define MP_CELL_IRQ_PSM_UPDATE          (0x2)
+#define MP_CELL_IRQ_EDRX_UPDATE         (0x4)
+#define MP_CELL_IRQ_RRC_UPDATE          (0x8)
+#define MP_CELL_IRQ_CELL_UPDATE         (0x10)
+#define MP_CELL_IRQ_LTE_MODE_UPDATE     (0x20)
+#define MP_CELL_IRQ_TAU_PRE_WARN        (0x40)
+#define MP_CELL_IRQ_NEIGHBOR_CELL_MEAS  (0x80)
 
 #define LTE_MODE_LTEM   1
 #define LTE_MODE_NBIOT  2
