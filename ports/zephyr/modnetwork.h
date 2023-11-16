@@ -56,6 +56,9 @@ MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);
 #define MP_CELL_IRQ_LTE_MODE_UPDATE     (0x20)
 #define MP_CELL_IRQ_TAU_PRE_WARN        (0x40)
 #define MP_CELL_IRQ_NEIGHBOR_CELL_MEAS  (0x80)
+#define MP_CELL_IRQ_LOCATION_FOUND      (0x100)
+#define MP_CELL_IRQ_LOCATION_TIMEOUT    (0x200)
+#define MP_CELL_IRQ_LOCATION_ERROR      (0x400)
 
 #define LTE_MODE_LTEM   1
 #define LTE_MODE_NBIOT  2
