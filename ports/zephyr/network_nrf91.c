@@ -24,6 +24,7 @@
  * THE SOFTWARE.
  */
 
+#if MICROPY_PY_NETWORK_NRF91
 #include <string.h>
 
 #include <zephyr/kernel.h>
@@ -44,8 +45,6 @@
 #endif
 
 LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
-
-#if MICROPY_PY_NETWORK_NRF91
 
 STATIC const mp_obj_base_t cell_if;
 
