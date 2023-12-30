@@ -83,6 +83,7 @@ STATIC mp_obj_t disable_console(mp_obj_t seconds) {
     if (delay > 0) {
         k_work_schedule(&console_enable, K_SECONDS(mp_obj_get_int(seconds)));
     }
+    return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(disable_console_obj, disable_console);
 #endif

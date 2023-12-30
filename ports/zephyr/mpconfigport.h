@@ -50,8 +50,6 @@
 #define MICROPY_FLOAT_IMPL (MICROPY_FLOAT_IMPL_FLOAT)
 
 #define MICROPY_ENABLE_SCHEDULER (1)
-#define MICROPY_VFS (1)
-#define MICROPY_READER_VFS (MICROPY_VFS)
 #define MICROPY_HELPER_REPL (1)
 #define MICROPY_KBD_EXCEPTION (1)
 
@@ -59,7 +57,6 @@
 #define MICROPY_PY_BUILTINS_HELP_TEXT zephyr_help_text
 
 // Extras:
-#define MICROPY_PY_TIME_TIME_TIME_NS (1)
 #define MICROPY_ENABLE_FINALISER (MICROPY_VFS)
 
 // Zephyr-port specific.
@@ -73,9 +70,7 @@
 #define MICROPY_STACK_CHECK         (1)
 #define MICROPY_ENABLE_GC           (1)
 #define MICROPY_ENABLE_FINALISER    (MICROPY_VFS)
-#define MICROPY_HELPER_REPL         (1)
 #define MICROPY_REPL_AUTO_INDENT    (1)
-#define MICROPY_KBD_EXCEPTION       (1)
 #define MICROPY_CPYTHON_COMPAT      (1)
 #define MICROPY_PY_ASYNC_AWAIT      (0)
 #define MICROPY_PY_ATTRTUPLE        (0)
@@ -90,6 +85,7 @@
 #define MICROPY_PY_BUILTINS_STR_COUNT (0)
 #define MICROPY_PY_BUILTINS_MEMORYVIEW (1)
 #define MICROPY_PY_BUILTINS_HELP    (1)
+#define MICROPY_REPL_EMACS_KEYS     (1)
 #define MICROPY_PY_BUILTINS_HELP_TEXT zephyr_help_text
 #define MICROPY_PY_ARRAY            (0)
 #define MICROPY_PY_COLLECTIONS      (1)
@@ -108,7 +104,6 @@
 #ifdef CONFIG_NETWORKING
 // If we have networking, we likely want errno comfort
 #define MICROPY_PY_UERRNO           (1)
-#define MICROPY_PY_USOCKET_ZEPHYR   (1)
 #endif
 
 #ifdef CONFIG_WIFI
@@ -146,7 +141,6 @@ extern const struct _mp_obj_type_t zephyr_network_cell_type;
 #define MICROPY_PY_TIME_TIME_TIME_NS (1)
 #define MICROPY_PY_TIME_INCLUDEFILE "ports/zephyr/modtime.c"
 #define MICROPY_PY_ZEPHYR           (1)
-#define MICROPY_PY_ZSENSOR          (1)
 #define MICROPY_PY_SYS_MODULES      (0)
 #define MICROPY_LONGINT_IMPL (MICROPY_LONGINT_IMPL_LONGLONG)
 #define MICROPY_FLOAT_IMPL (MICROPY_FLOAT_IMPL_FLOAT)

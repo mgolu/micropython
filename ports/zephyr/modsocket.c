@@ -3,6 +3,7 @@
  *
  * The MIT License (MIT)
  *
+ * Copyright (c) 2023 Mariano Goluboff
  * Copyright (c) 2017 Linaro Limited
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,7 +26,7 @@
  */
 
 #include "py/mpconfig.h"
-#ifdef MICROPY_PY_USOCKET_ZEPHYR
+#ifdef CONFIG_NET_SOCKETS
 
 #include "py/runtime.h"
 #include "py/stream.h"
@@ -34,11 +35,13 @@
 #include <zephyr/kernel.h>
 // Zephyr's generated version header
 #include <version.h>
-#include <zephyr/net/net_context.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/dns_resolve.h>
-#ifdef CONFIG_NET_SOCKETS
 #include <zephyr/net/socket.h>
+
+#if (CONFIG_NET_SOCKETS_SOCKOPT_TLS || CONFIG_NET_SOCKETS_OFFLOAD)
+#include <zephyr/net/tls_credentials.h>
+#define DEFAULT_SEC_TAG 100143
 #endif
 
 #define DEBUG_PRINT 1
@@ -57,9 +60,7 @@ typedef struct _socket_obj_t {
     #define STATE_CONNECTED 2
     #define STATE_PEER_CLOSED 3
     int8_t state;
-#if CONFIG_NET_SOCKETS_OFFLOAD
     sa_family_t family;
-#endif
 } socket_obj_t;
 
 STATIC const mp_obj_type_t socket_type;
@@ -81,12 +82,8 @@ STATIC void parse_inet_addr(socket_obj_t *socket, mp_obj_t addr_in, struct socka
     struct sockaddr_in *sockaddr_in = (struct sockaddr_in *)sockaddr;
 
     mp_obj_t *addr_items;
-#if CONFIG_NET_SOCKETS_OFFLOAD
+
     sockaddr_in->sin_family = socket->family;
-#else
-    void *context = zsock_get_context_object(socket->ctx);
-    sockaddr_in->sin_family = net_context_get_family(context);
-#endif
     size_t address_array_size = (sockaddr_in->sin_family == AF_INET6) ? 4 : 2;
     mp_obj_get_array_fixed_n(addr_in, address_array_size, &addr_items);
     RAISE_ERRNO(net_addr_pton(sockaddr_in->sin_family, mp_obj_str_get_str(addr_items[0]), &sockaddr_in->sin_addr));
@@ -128,8 +125,7 @@ STATIC void socket_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kin
     if (self->ctx == -1) {
         mp_printf(print, "<socket NULL>");
     } else {
-        void *context = zsock_get_context_object(self->ctx);
-        mp_printf(print, "<socket %p type=%d>", self->ctx, net_context_get_type(context));
+        mp_printf(print, "<socket %p family=%d>", self->ctx, self->family);
     }
 }
 
@@ -161,9 +157,7 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 
     socket->ctx = zsock_socket(family, socktype, proto);
     RAISE_SOCK_ERRNO(socket->ctx);
-#if CONFIG_NET_SOCKETS_OFFLOAD
     socket->family = family;
-#endif
     return MP_OBJ_FROM_PTR(socket);
 }
 
@@ -411,7 +405,7 @@ void dns_resolve_cb(enum dns_resolve_status status, struct dns_addrinfo *info, v
 STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     mp_obj_t host_in = args[0], port_in = args[1];
     const char *host = mp_obj_str_get_str(host_in);
-    mp_int_t family = 0;
+    mp_int_t family = AF_INET;
     if (n_args > 2) {
         family = mp_obj_get_int(args[2]);
     }
@@ -442,7 +436,7 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
 #else // CONFIG_NET_SOCKETS_OFFLOAD
     struct addrinfo *ai = NULL;
 	struct addrinfo hints = {
-		.ai_family = AF_UNSPEC
+		.ai_family = family
 	};
 
     RAISE_ERRNO(getaddrinfo(host, NULL, &hints, &ai));
@@ -507,4 +501,4 @@ const mp_obj_module_t mp_module_socket = {
 
 MP_REGISTER_EXTENSIBLE_MODULE(MP_QSTR_socket, mp_module_socket);
 
-#endif // MICROPY_PY_USOCKET_ZEPHYR
+#endif // CONFIG_NET_SOCKETS
