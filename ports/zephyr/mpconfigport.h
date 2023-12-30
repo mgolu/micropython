@@ -51,8 +51,6 @@
 #define MICROPY_FLOAT_IMPL (MICROPY_FLOAT_IMPL_FLOAT)
 
 #define MICROPY_ENABLE_SCHEDULER (1)
-#define MICROPY_VFS (1)
-#define MICROPY_READER_VFS (MICROPY_VFS)
 #define MICROPY_HELPER_REPL (1)
 #define MICROPY_KBD_EXCEPTION (1)
 
@@ -60,7 +58,6 @@
 #define MICROPY_PY_BUILTINS_HELP_TEXT zephyr_help_text
 
 // Extras:
-#define MICROPY_PY_TIME_TIME_TIME_NS (1)
 #define MICROPY_ENABLE_FINALISER (MICROPY_VFS)
 
 // Zephyr-port specific.
@@ -70,6 +67,35 @@
 #define MICROPY_PY_MACHINE (1)
 #define MICROPY_PY_MACHINE_I2C (CONFIG_I2C)
 #define MICROPY_PY_MACHINE_SPI (CONFIG_SPI)
+#define MICROPY_ENABLE_SOURCE_LINE  (1)
+#define MICROPY_STACK_CHECK         (1)
+#define MICROPY_ENABLE_GC           (1)
+#define MICROPY_ENABLE_FINALISER    (MICROPY_VFS)
+#define MICROPY_REPL_AUTO_INDENT    (1)
+#define MICROPY_CPYTHON_COMPAT      (1)
+#define MICROPY_PY_ASYNC_AWAIT      (0)
+#define MICROPY_PY_ATTRTUPLE        (0)
+#define MICROPY_PY_BUILTINS_BYTES_HEX (1)
+#define MICROPY_PY_BUILTINS_ENUMERATE (0)
+#define MICROPY_PY_BUILTINS_FILTER  (0)
+#define MICROPY_PY_BUILTINS_MIN_MAX (0)
+#define MICROPY_PY_BUILTINS_PROPERTY (1)
+#define MICROPY_PY_BUILTINS_RANGE_ATTRS (0)
+#define MICROPY_PY_BUILTINS_REVERSED (0)
+#define MICROPY_PY_BUILTINS_SET     (1)
+#define MICROPY_PY_BUILTINS_STR_COUNT (0)
+#define MICROPY_PY_BUILTINS_MEMORYVIEW (1)
+#define MICROPY_PY_BUILTINS_HELP    (1)
+#define MICROPY_REPL_EMACS_KEYS     (1)
+#define MICROPY_PY_BUILTINS_HELP_TEXT zephyr_help_text
+#define MICROPY_PY_ARRAY            (0)
+#define MICROPY_PY_COLLECTIONS      (1)
+#define MICROPY_PY_CMATH            (0)
+#define MICROPY_PY_IO               (1)
+#define MICROPY_PY_RE               (1)
+#define MICROPY_PY_BUILTINS_FROZENSET (1)
+#define MICROPY_PY_COLLECTIONS_ORDEREDDICT (1)
+#define MICROPY_PY_MICROPYTHON_MEM_INFO (1)
 #define MICROPY_PY_MACHINE_SPI_MSB (SPI_TRANSFER_MSB)
 #define MICROPY_PY_MACHINE_SPI_LSB (SPI_TRANSFER_LSB)
 #define MICROPY_PY_MACHINE_PIN_MAKE_NEW mp_pin_make_new
@@ -77,7 +103,25 @@
 #define MICROPY_PY_STRUCT           (1)
 
 #ifdef CONFIG_NETWORKING
-#define MICROPY_PY_USOCKET_ZEPHYR (1)
+// If we have networking, we likely want errno comfort
+#define MICROPY_PY_UERRNO           (1)
+#endif
+
+#ifdef CONFIG_WIFI
+extern const struct _mp_obj_type_t zephyr_network_wlan_type;
+#define MICROPY_PY_NETWORK          (1)
+#define MICROPY_PY_NETWORK_WLAN     (1)
+#endif
+
+#ifdef CONFIG_SOC_SERIES_NRF91X
+extern const struct _mp_obj_type_t zephyr_network_cell_type;
+#define MICROPY_PY_NETWORK          (1)
+#define MICROPY_PY_NETWORK_NRF91    (1)
+#endif
+
+#if MICROPY_PY_NETWORK
+#ifndef MICROPY_PY_NETWORK_HOSTNAME_DEFAULT
+#define MICROPY_PY_NETWORK_HOSTNAME_DEFAULT "zephyr-net"
 #endif
 #ifdef CONFIG_BT
 #define MICROPY_PY_BUILTINS_MEMORYVIEW (1)
@@ -90,6 +134,16 @@
 #endif
 #define MICROPY_PY_BLUETOOTH_ENABLE_GATT_CLIENT (0)
 #endif // CONFIG_BT
+
+#define MICROPY_PY_TIME_TIME_TIME_NS (1)
+#define MICROPY_PY_TIME_INCLUDEFILE "ports/zephyr/modtime.c"
+#define MICROPY_PY_ZEPHYR           (1)
+#define MICROPY_PY_SYS_MODULES      (0)
+#define MICROPY_LONGINT_IMPL (MICROPY_LONGINT_IMPL_LONGLONG)
+#define MICROPY_FLOAT_IMPL (MICROPY_FLOAT_IMPL_FLOAT)
+#define MICROPY_PY_BUILTINS_COMPLEX (0)
+#define MICROPY_VFS                 (1)
+#define MICROPY_READER_VFS          (MICROPY_VFS)
 
 // fatfs configuration used in ffconf.h
 #define MICROPY_FATFS_ENABLE_LFN (1)
