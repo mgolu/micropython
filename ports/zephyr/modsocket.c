@@ -3,6 +3,7 @@
  *
  * The MIT License (MIT)
  *
+ * Copyright (c) 2023 Mariano Goluboff
  * Copyright (c) 2017 Linaro Limited
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,7 +26,7 @@
  */
 
 #include "py/mpconfig.h"
-#ifdef MICROPY_PY_USOCKET_ZEPHYR
+#ifdef CONFIG_NET_SOCKETS
 
 #include "py/runtime.h"
 #include "py/stream.h"
@@ -34,12 +35,9 @@
 #include <zephyr/kernel.h>
 // Zephyr's generated version header
 #include <version.h>
-#include <zephyr/net/net_context.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/dns_resolve.h>
-#ifdef CONFIG_NET_SOCKETS
 #include <zephyr/net/socket.h>
-#endif
 
 #define DEBUG_PRINT 0
 #if DEBUG_PRINT // print debugging info
@@ -57,6 +55,7 @@ typedef struct _socket_obj_t {
     #define STATE_CONNECTED 2
     #define STATE_PEER_CLOSED 3
     int8_t state;
+    sa_family_t family;
 } socket_obj_t;
 
 STATIC const mp_obj_type_t socket_type;
@@ -78,9 +77,10 @@ STATIC void parse_inet_addr(socket_obj_t *socket, mp_obj_t addr_in, struct socka
     struct sockaddr_in *sockaddr_in = (struct sockaddr_in *)sockaddr;
 
     mp_obj_t *addr_items;
-    mp_obj_get_array_fixed_n(addr_in, 2, &addr_items);
-    void *context = zsock_get_context_object(socket->ctx);
-    sockaddr_in->sin_family = net_context_get_family(context);
+
+    sockaddr_in->sin_family = socket->family;
+    size_t address_array_size = (sockaddr_in->sin_family == AF_INET6) ? 4 : 2;
+    mp_obj_get_array_fixed_n(addr_in, address_array_size, &addr_items);
     RAISE_ERRNO(net_addr_pton(sockaddr_in->sin_family, mp_obj_str_get_str(addr_items[0]), &sockaddr_in->sin_addr));
     sockaddr_in->sin_port = htons(mp_obj_get_int(addr_items[1]));
 }
@@ -120,8 +120,7 @@ STATIC void socket_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kin
     if (self->ctx == -1) {
         mp_printf(print, "<socket NULL>");
     } else {
-        void *context = zsock_get_context_object(self->ctx);
-        mp_printf(print, "<socket %p type=%d>", self->ctx, net_context_get_type(context));
+        mp_printf(print, "<socket %p family=%d>", self->ctx, self->family);
     }
 }
 
@@ -153,7 +152,7 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 
     socket->ctx = zsock_socket(family, socktype, proto);
     RAISE_SOCK_ERRNO(socket->ctx);
-
+    socket->family = family;
     return MP_OBJ_FROM_PTR(socket);
 }
 
@@ -401,7 +400,7 @@ void dns_resolve_cb(enum dns_resolve_status status, struct dns_addrinfo *info, v
 STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     mp_obj_t host_in = args[0], port_in = args[1];
     const char *host = mp_obj_str_get_str(host_in);
-    mp_int_t family = 0;
+    mp_int_t family = AF_INET;
     if (n_args > 2) {
         family = mp_obj_get_int(args[2]);
     }
@@ -411,6 +410,7 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     (void)mp_obj_get_int(port_in);
     state.port = port_in;
     state.result = mp_obj_new_list(0, NULL);
+#if !CONFIG_NET_SOCKETS_OFFLOAD
     k_sem_init(&state.sem, 0, UINT_MAX);
 
     for (int i = 2; i--;) {
@@ -429,7 +429,25 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     if (state.status != 0 && len == 0) {
         mp_raise_OSError(state.status);
     }
+#else // CONFIG_NET_SOCKETS_OFFLOAD
+    struct addrinfo *ai = NULL;
+	struct addrinfo hints = {
+		.ai_family = family
+	};
 
+    RAISE_ERRNO(getaddrinfo(host, NULL, &hints, &ai));
+
+    do {
+        mp_obj_tuple_t *tuple = mp_obj_new_tuple(5, NULL);
+        tuple->items[0] = MP_OBJ_NEW_SMALL_INT(ai->ai_addr->sa_family);
+        tuple->items[1] = MP_OBJ_NEW_SMALL_INT(ai->ai_socktype);
+        tuple->items[2] = MP_OBJ_NEW_SMALL_INT(ai->ai_protocol);
+        tuple->items[3] = MP_OBJ_NEW_QSTR(MP_QSTR_);
+        tuple->items[4] = format_inet_addr(ai->ai_addr, state.port);
+        mp_obj_list_append(state.result, MP_OBJ_FROM_PTR(tuple));
+    } while (ai->ai_next != NULL);
+    freeaddrinfo(ai);
+#endif // !CONFIG_NET_SOCKETS_OFFLOAD
     return state.result;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_getaddrinfo_obj, 2, 3, mod_getaddrinfo);
@@ -476,4 +494,4 @@ const mp_obj_module_t mp_module_socket = {
 
 MP_REGISTER_EXTENSIBLE_MODULE(MP_QSTR_socket, mp_module_socket);
 
-#endif // MICROPY_PY_USOCKET_ZEPHYR
+#endif // CONFIG_NET_SOCKETS
