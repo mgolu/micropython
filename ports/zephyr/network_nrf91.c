@@ -24,7 +24,6 @@
  * THE SOFTWARE.
  */
 
-#if MICROPY_PY_NETWORK_NRF91
 #include <string.h>
 
 #include <zephyr/kernel.h>
@@ -33,6 +32,8 @@
 #include "py/mphal.h"
 #include "extmod/modnetwork.h"
 #include "modnetwork.h"
+
+#if MICROPY_PY_NETWORK_NRF91
 
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_at.h>
@@ -47,6 +48,9 @@
 LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
 
 STATIC const mp_obj_base_t cell_if;
+
+K_SEM_DEFINE(at_sem, 0, 1);
+static const char *at_resp = NULL;
 
 static bool initialized = false;
 static mp_obj_t irq_handler = mp_const_none;
@@ -501,6 +505,92 @@ STATIC mp_obj_t network_cell_irq(size_t n_args, const mp_obj_t *args, mp_map_t *
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_irq_obj, 1, network_cell_irq);
 
+void resp_callback(const char *at_response) {
+    at_resp = at_response;
+    k_sem_give(&at_sem);
+}
+
+STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
+    //wlan_if_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+    int ret;
+    switch (mp_obj_str_get_qstr(args[1])) {
+        case MP_QSTR_list: {
+            switch (n_args) {
+                case 2:
+                    ret = nrf_modem_at_cmd_async(resp_callback, "AT%%CMNG=1");
+                    break;
+                case 3:
+                    ret = nrf_modem_at_cmd_async(resp_callback, "AT%%CMNG=1,%u", mp_obj_get_int(args[2]));
+                    break;
+                case 4:
+                    ret = nrf_modem_at_cmd_async(resp_callback, "AT%%CMNG=1,%u,%u", mp_obj_get_int(args[2]), mp_obj_get_int(args[3]));
+                    break;
+                default:
+                    ret = -1;
+            }
+            if (ret) {
+                mp_raise_OSError(ret);
+            }
+            k_sem_take(&at_sem, K_FOREVER);
+            mp_obj_t list = mp_obj_new_list(0, NULL);
+            while (at_resp != NULL) {
+                if (strncmp(at_resp, "\r\n", 2) == 0) {
+                    at_resp += 2;
+                }
+                if (strncmp(at_resp, "%CMNG: ", strlen("%CMNG: ")) == 0) {
+                    uint32_t sec_tag, type;
+                    sscanf(at_resp, "%%CMNG: %u,%u", &sec_tag, &type);
+                    mp_obj_t tuple[2] = { mp_obj_new_int_from_uint(sec_tag), mp_obj_new_int(type) };
+                    mp_obj_list_append(list, mp_obj_new_tuple(2, tuple));
+                } else {
+                    // TODO: Handle OK\r\n
+                    break;
+                }
+                at_resp = strstr(at_resp, "\r\n");
+            }
+            return list;
+        }
+        case MP_QSTR_write: {
+            if (n_args != 5) {
+                mp_raise_ValueError(MP_ERROR_TEXT("Not enough arguments"));
+            }
+            uint32_t sec_tag = mp_obj_get_int(args[2]);
+            if (sec_tag > 2147483647) {
+                mp_raise_ValueError(MP_ERROR_TEXT("Invalid security tag"));
+            }
+            uint32_t type = mp_obj_get_int(args[3]);
+            if (type > 6) {
+                mp_raise_ValueError(MP_ERROR_TEXT("Invalid type"));
+            }
+            ret = nrf_modem_at_printf("AT%%CMNG=0,%u,%u,\"%s\"", sec_tag, type, mp_obj_str_get_str(args[4]));
+            if (ret) {
+                mp_raise_OSError(ret);
+            }
+            return mp_const_none;
+        }
+        case MP_QSTR_delete: {
+            if (n_args != 4) {
+                mp_raise_ValueError(MP_ERROR_TEXT("Not enough arguments"));
+            }
+            uint32_t sec_tag = mp_obj_get_int(args[2]);
+            if (sec_tag > 2147483647) {
+                mp_raise_ValueError(MP_ERROR_TEXT("Invalid security tag"));
+            }
+            uint32_t type = mp_obj_get_int(args[3]);
+            if (type > 6) {
+                mp_raise_ValueError(MP_ERROR_TEXT("Invalid type"));
+            }
+            ret = nrf_modem_at_printf("AT%%CMNG=3,%u,%u", sec_tag, type);
+            if (ret) {
+                mp_raise_OSError(ret);
+            }
+            return mp_const_none;
+        }
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_cert_obj, 2, network_cell_cert);
+
 #ifdef CONFIG_LOCATION
 static int find_method_index(struct location_config *config, enum location_method method) {
     for (int i = 0; i < CONFIG_LOCATION_METHODS_LIST_SIZE; i++) {
@@ -635,6 +725,8 @@ STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&network_cell_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_at), MP_ROM_PTR(&network_cell_at_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_cell_irq_obj) },
+// Certificate management
+    { MP_ROM_QSTR(MP_QSTR_cert), MP_ROM_PTR(&network_cell_cert_obj) },
 #ifdef CONFIG_LOCATION
     { MP_ROM_QSTR(MP_QSTR_location), MP_ROM_PTR(&network_cell_location_obj) },
     { MP_ROM_QSTR(MP_QSTR_location_cancel), MP_ROM_PTR(&network_cell_location_cancel_obj) },

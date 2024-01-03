@@ -100,6 +100,7 @@
 #define MICROPY_PY_MACHINE_PIN_MAKE_NEW mp_pin_make_new
 
 #define MICROPY_PY_STRUCT           (1)
+#define MICROPY_STREAMS_NON_BLOCK   (1)
 
 #ifdef CONFIG_NETWORKING
 // If we have networking, we likely want errno comfort
