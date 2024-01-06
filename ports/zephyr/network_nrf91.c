@@ -139,24 +139,30 @@ static void location_event_handler(const struct location_event_data *event_data)
         if (irq_mask & MP_CELL_IRQ_LOCATION_FOUND) {
             mp_obj_t tuple[2] = { 0, 0 };
             tuple[0] = mp_obj_new_int(MP_CELL_IRQ_LOCATION_FOUND);
-            mp_obj_t params[11];
+            mp_obj_t params[14];
+            uint8_t idx = 0;
             const char *method_str = location_method_str(event_data->method);
-            params[0] = mp_obj_new_str(method_str, strlen(method_str));
-            params[1] = mp_obj_new_float(event_data->location.latitude);
-            params[2] = mp_obj_new_float(event_data->location.longitude);
-            params[3] = mp_obj_new_float(event_data->location.accuracy);
+            params[idx++] = mp_obj_new_str(method_str, strlen(method_str));
+            params[idx++] = mp_obj_new_float(event_data->location.latitude);
+            params[idx++] = mp_obj_new_float(event_data->location.longitude);
+            params[idx++] = mp_obj_new_float(event_data->location.accuracy);
             if (event_data->location.datetime.valid) {
-                params[4] = mp_obj_new_int(event_data->location.datetime.year);
-                params[5] = mp_obj_new_int(event_data->location.datetime.month);
-                params[6] = mp_obj_new_int(event_data->location.datetime.day);
-                params[7] = mp_obj_new_int(event_data->location.datetime.hour);
-                params[8] = mp_obj_new_int(event_data->location.datetime.minute);
-                params[9] = mp_obj_new_int(event_data->location.datetime.second);
-                params[10] = mp_obj_new_int(event_data->location.datetime.ms);
-                tuple[1] = mp_obj_new_tuple(11, params);
-            } else {
-                tuple[1] = mp_obj_new_tuple(4, params);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.year);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.month);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.day);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.hour);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.minute);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.second);
+                params[idx++] = mp_obj_new_int(event_data->location.datetime.ms);   
             }
+#if defined(CONFIG_LOCATION_DATA_DETAILS)
+            if (event_data->method == LOCATION_METHOD_GNSS) {
+                params[idx++] = mp_obj_new_float(event_data->location.details.gnss.pvt_data.altitude);
+                params[idx++] = mp_obj_new_float(event_data->location.details.gnss.pvt_data.heading);
+                params[idx++] = mp_obj_new_float(event_data->location.details.gnss.pvt_data.speed);
+            }
+#endif
+            tuple[1] = mp_obj_new_tuple(idx, params);
             mp_sched_schedule(MP_OBJ_FROM_PTR(&cell_invoke_irq_obj), mp_obj_new_tuple(2, tuple));
         }
 		break;
