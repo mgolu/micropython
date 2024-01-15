@@ -38,12 +38,15 @@
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_at.h>
 #include <modem/lte_lc.h>
+#include <modem/modem_jwt.h>
 
 #include <zephyr/logging/log.h>
 
 #ifdef CONFIG_LOCATION
 #include <modem/location.h>
 #endif
+
+#define IMEI_LEN 15
 
 LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
 
@@ -52,7 +55,6 @@ STATIC const mp_obj_base_t cell_if;
 K_SEM_DEFINE(at_sem, 0, 1);
 static const char *at_resp = NULL;
 
-static bool initialized = false;
 static mp_obj_t irq_handler = mp_const_none;
 static uint32_t irq_mask = 0x0;
 
@@ -202,36 +204,15 @@ STATIC mp_obj_t network_cell_make_new(const mp_obj_type_t *type, size_t n_args, 
 #ifdef CONFIG_LOCATION
     location_init(location_event_handler);
 #endif
+    // The LC library doesn't re-register the same handler, so we can safely call it 
+    // multiple times. Init can also be called again and will return 0
+    lte_lc_register_handler(lte_handler);
+    ret = lte_lc_init();   // TODO: This call will be deprecated (already is in main)
+    if (ret) {
+        mp_raise_OSError(ret);
+    }
     return MP_OBJ_FROM_PTR(&cell_if);
 }
-
-STATIC mp_obj_t network_cell_active(size_t n_args, const mp_obj_t *args) {
-
-    if (n_args > 1) {
-        bool activate = mp_obj_is_true(args[1]);
-        if (activate && !initialized) {
-            lte_lc_register_handler(lte_handler);
-            int ret = lte_lc_init();
-            if (ret) {
-                mp_raise_OSError(ret);
-            }
-            initialized = true;
-        } else if (!activate && initialized) {
-            int ret = lte_lc_deregister_handler(lte_handler);
-            if (ret) {
-                mp_raise_OSError(ret);
-            }
-            ret = lte_lc_deinit();
-            if (ret) {
-                mp_raise_OSError(ret);
-            }
-            initialized = false;
-        }
-        return mp_obj_new_bool(initialized);
-    }
-    return mp_obj_new_bool(initialized);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_cell_active_obj, 1, 2, network_cell_active);
 
 STATIC mp_obj_t network_cell_connect(mp_obj_t self_in) {
     int ret = lte_lc_connect_async(NULL);
@@ -511,6 +492,32 @@ STATIC mp_obj_t network_cell_irq(size_t n_args, const mp_obj_t *args, mp_map_t *
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_irq_obj, 1, network_cell_irq);
 
+STATIC mp_obj_t network_cell_uuid(mp_obj_t self_in) {
+    struct nrf_device_uuid dev = {0};
+
+    int ret = modem_jwt_get_uuids(&dev, NULL);
+
+    if (ret) {
+        mp_raise_OSError(ret);
+    }
+    return mp_obj_new_str(dev.str, strlen(dev.str));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_uuid_obj, network_cell_uuid);
+
+STATIC mp_obj_t network_cell_imei(mp_obj_t self_in) {
+	char imei_buf[IMEI_LEN + 6 + 1]; /* Add 6 for \r\nOK\r\n and 1 for \0 */
+
+	/* Retrieve device IMEI from modem. */
+	int ret = nrf_modem_at_cmd(imei_buf, ARRAY_SIZE(imei_buf), "AT+CGSN");
+
+	if (ret) {
+		mp_raise_OSError(ret);
+	}
+
+    return mp_obj_new_str(imei_buf, IMEI_LEN);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_imei_obj, network_cell_imei);
+
 void resp_callback(const char *at_response) {
     at_resp = at_response;
     k_sem_give(&at_sem);
@@ -724,13 +731,14 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_location_cancel_obj, network_cell_
 #endif
 
 STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
-    { MP_ROM_QSTR(MP_QSTR_active), MP_ROM_PTR(&network_cell_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_cell_connect_obj) },
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_cell_isconnected_obj) },
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_cell_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&network_cell_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_at), MP_ROM_PTR(&network_cell_at_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_cell_irq_obj) },
+    { MP_ROM_QSTR(MP_QSTR_uuid), MP_ROM_PTR(&network_cell_uuid_obj) },
+    { MP_ROM_QSTR(MP_QSTR_imei), MP_ROM_PTR(&network_cell_imei_obj) },
 // Certificate management
     { MP_ROM_QSTR(MP_QSTR_cert), MP_ROM_PTR(&network_cell_cert_obj) },
 #ifdef CONFIG_LOCATION

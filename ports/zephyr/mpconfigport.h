@@ -41,7 +41,7 @@
 #define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_EXTRA_FEATURES)
 
 #define MICROPY_PY_SELECT (0)
-#define MICROPY_PY_JSON             (0)
+#define MICROPY_PY_JSON             (1)
 #define MICROPY_PY_SYS_STDFILES     (0)
 
 // Required

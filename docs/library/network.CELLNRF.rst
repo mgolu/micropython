@@ -36,12 +36,6 @@ Constructors
 Methods
 -------
 
-.. method:: CELL.active([active])
-
-   Activate or deactivate the network interface, if a boolean argument is passed.
-   Otherwise, query current state if no argument is provided. Most other methods require
-   an active interface.
-
 .. method:: CELL.connect()
 
    Start the connection process, per the configuration of the device. This method
