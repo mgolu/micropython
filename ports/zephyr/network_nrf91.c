@@ -34,7 +34,7 @@
 #include "modnetwork.h"
 
 #if MICROPY_PY_NETWORK_NRF91
-
+#include <stdio.h>
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_at.h>
 #include <modem/lte_lc.h>
@@ -416,8 +416,8 @@ STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
         return mp_obj_new_int_from_uint(reg_status);
     }
     // There's an argument, get that status
-    switch ((uintptr_t)args[1]) {
-        case (uintptr_t)MP_OBJ_NEW_QSTR(MP_QSTR_mode): {
+    switch (mp_obj_str_get_qstr(args[1])) {
+        case MP_QSTR_mode: {
             enum lte_lc_lte_mode mode;
             int ret = lte_lc_lte_mode_get(&mode);
             if (ret) {
