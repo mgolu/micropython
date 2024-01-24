@@ -39,14 +39,14 @@
 #include <nrf_modem_at.h>
 #include <modem/lte_lc.h>
 #include <modem/modem_jwt.h>
+#include <modem/modem_info.h>
+#include <math.h>
 
 #include <zephyr/logging/log.h>
 
 #ifdef CONFIG_LOCATION
 #include <modem/location.h>
 #endif
-
-#define IMEI_LEN 15
 
 LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
 
@@ -57,6 +57,8 @@ static const char *at_resp = NULL;
 
 static mp_obj_t irq_handler = mp_const_none;
 static uint32_t irq_mask = 0x0;
+
+#define CHECK_LC(f) if ( (ret = (f)) < 0 ){ return mp_obj_new_int(ret);}
 
 STATIC mp_obj_t cell_invoke_irq(mp_obj_t arg) {
     // Send a tuple with the following:
@@ -100,9 +102,18 @@ static void lte_handler(const struct lte_lc_evt *const evt)
             }
             break;
         }
-        case LTE_LC_EVT_EDRX_UPDATE: 
-            LOG_INF("Updated eDRX");
+        case LTE_LC_EVT_EDRX_UPDATE:
+        {
+            if (irq_mask & MP_CELL_IRQ_EDRX_UPDATE) {
+                tuple[0] = mp_obj_new_int(MP_CELL_IRQ_EDRX_UPDATE);
+                mp_obj_t params[2] = {
+                    mp_obj_new_float(evt->edrx_cfg.edrx),
+                    mp_obj_new_float(evt->edrx_cfg.ptw),
+                };
+                tuple[1] = mp_obj_new_tuple(2, params);
+            }
             break;
+        }
         case LTE_LC_EVT_RRC_UPDATE:
             if (irq_mask & MP_CELL_IRQ_RRC_UPDATE) {
                 tuple[0] = mp_obj_new_int(MP_CELL_IRQ_RRC_UPDATE);
@@ -215,20 +226,17 @@ STATIC mp_obj_t network_cell_make_new(const mp_obj_type_t *type, size_t n_args, 
 }
 
 STATIC mp_obj_t network_cell_connect(mp_obj_t self_in) {
-    int ret = lte_lc_connect_async(NULL);
-    if (ret) {
-        mp_raise_OSError(ret);
-    }
+    int ret;
+    CHECK_LC(lte_lc_connect_async(NULL));
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_connect_obj, network_cell_connect);
 
 STATIC mp_obj_t network_cell_isconnected(mp_obj_t self_in) {
     enum lte_lc_nw_reg_status reg_status;
-    int ret = lte_lc_nw_reg_status_get(&reg_status);
-    if (ret) {
-        mp_raise_OSError(ret);
-    }
+    int ret;
+
+    CHECK_LC(lte_lc_nw_reg_status_get(&reg_status));
     if (reg_status == LTE_LC_NW_REG_REGISTERED_HOME ||
         reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING) {
             return mp_const_true;
@@ -237,10 +245,54 @@ STATIC mp_obj_t network_cell_isconnected(mp_obj_t self_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_isconnected_obj, network_cell_isconnected);
 
+#define EDRXCODE_TO_BINARY_FORMAT "%c%c%c%c"
+#define EDRXCODE_TO_BINARY(byte) \
+    ((byte) & 0x08 ? '1' : '0'), \
+    ((byte) & 0x04 ? '1' : '0'), \
+    ((byte) & 0x02 ? '1' : '0'), \
+    ((byte) & 0x01 ? '1' : '0')
+/*
+ * eDRX values are a string of 4 bits. The array below will represent
+ * them as uint8_t to save space, and the conversion will be done later.
+ * 
+ * Valid values for cycle length (in seconds):
+ * 
+ * 20.48    40.96   81.92   163.84  327.68  655.36  1310.72 2621.44
+ * 0010     0011    0101    1001    1010    1011    1100    1101
+ * 
+ */
+static uint8_t edrx_cycle_encoded[8] = {2, 3, 5, 9, 10, 11, 12, 13};
+static uint8_t get_cycle_value(float seconds) {
+    if (seconds <= 20.48) {
+        return edrx_cycle_encoded[0];
+    }
+    uint8_t cycle_index = MIN(sqrt(seconds / 20.48), sizeof(edrx_cycle_encoded) - 1);
+    return edrx_cycle_encoded[cycle_index];
+}
+
+/*
+ *
+ * Valid values for PTW (in seconds):
+ * 
+ * LTE-M    1.28    2.56    3.84    5.12    6.4     7.68    8.96    10.24   11.52   12.8    14.08   15.36   16.64   17.92   19.20   20.48
+ * NB-IoT   2.56    5.12    7.68    10.24   12.8    15.36   17.92   20.48   23.04   25.6    28.16   30.72   33.28   35.84   38.4    40.96
+ * Code     0000    0001    0010    0011    0100    0101    0110    0111    1000    1001    1010    1011    1100    1101    1110    1111
+ */
+
+static uint8_t get_lte_ptw(float seconds, bool nbiot) {
+    float divisor = nbiot ? 2.56 : 1.28;
+    if (seconds <= divisor) {
+        return 0;
+    }
+    uint8_t lte_ptw_index = MIN((seconds - 0.01) / divisor, 15);
+    return lte_ptw_index;
+}
+
 STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) {
     if (n_args != 1 && kwargs->used != 0) {
         mp_raise_TypeError(MP_ERROR_TEXT("either pos or kw args are allowed"));
     }
+    int ret;
     if (kwargs->used != 0) {
         for (size_t i = 0; i < kwargs->alloc; i++) {
             if (mp_map_slot_is_filled(kwargs, i)) {
@@ -301,21 +353,49 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                             default:
                                 mp_raise_ValueError("Preference value is not valid");
                         }
-                        int ret = lte_lc_system_mode_set(mode, preference);
-                        if (ret) {
-                            mp_raise_OSError(ret);
-                        }
+                        CHECK_LC(lte_lc_system_mode_set(mode, preference));
                         break;
                     }
-                    case MP_QSTR_psm_params: {
+                    case MP_QSTR_edrx: {
                         if (!mp_obj_is_type(kwargs->table[i].value, &mp_type_tuple)) {
-                            mp_raise_ValueError("PSM params must be a tuple with TAU and RAT");
+                            mp_raise_ValueError("Parameters must be a tuple");
                         }
                         size_t len;
                         mp_obj_t *items;
                         mp_obj_tuple_get(kwargs->table[i].value, &len, &items);
                         if (len != 2) {
-                            mp_raise_ValueError("PSM params tuple must have 2 values: (TAU, RAT)");
+                            mp_raise_ValueError("Parameter tuple must have 2 values");
+                        }
+                        float edrx_cycle = mp_obj_is_float(items[0]) ? mp_obj_float_get(items[0]) : (float)mp_obj_get_int(items[0]);
+                        float edrx_ptw = mp_obj_is_float(items[1]) ? mp_obj_float_get(items[1]) : (float)mp_obj_get_int(items[1]);
+                        char value[5];
+                        snprintf(value, sizeof(value), EDRXCODE_TO_BINARY_FORMAT,
+                                EDRXCODE_TO_BINARY(edrx_cycle_encoded[get_cycle_value(edrx_cycle)]));
+                        CHECK_LC(lte_lc_edrx_param_set(LTE_LC_LTE_MODE_LTEM, value));
+                        CHECK_LC(lte_lc_edrx_param_set(LTE_LC_LTE_MODE_NBIOT, value));
+
+                        snprintf(value, sizeof(value), EDRXCODE_TO_BINARY_FORMAT,
+                            EDRXCODE_TO_BINARY(get_lte_ptw(edrx_ptw, false)));
+                        CHECK_LC(lte_lc_ptw_set(LTE_LC_LTE_MODE_LTEM, value));
+                        
+                        snprintf(value, sizeof(value), EDRXCODE_TO_BINARY_FORMAT,
+                            EDRXCODE_TO_BINARY(get_lte_ptw(edrx_ptw, true)));
+                        CHECK_LC(lte_lc_ptw_set(LTE_LC_LTE_MODE_NBIOT, value));
+                        break;
+                    }
+                    case MP_QSTR_edrx_enable: {
+                        CHECK_LC(lte_lc_edrx_req(mp_obj_is_true(kwargs->table[i].value)));
+                        break;
+                    }
+                    case MP_QSTR_psm_params: {
+                        if (!mp_obj_is_type(kwargs->table[i].value, &mp_type_tuple)) {
+                            mp_raise_ValueError("Parameters must be a tuple");
+                        }
+                        size_t len;
+                        mp_obj_t *items;
+                        mp_obj_tuple_get(kwargs->table[i].value, &len, &items);
+                        if (len != 2) {
+                            mp_raise_ValueError("Parameter tuple must have 2 values");
                         }
                         if (!mp_obj_is_str(items[0]) || !mp_obj_is_str(items[1])) {
                             mp_raise_ValueError("TAU and RAT must be strings");
@@ -327,10 +407,7 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         break;
                     }
                     case MP_QSTR_psm_enable: {
-                        int ret = lte_lc_psm_req(mp_obj_is_true(kwargs->table[i].value));
-                        if (ret) {
-                            mp_raise_OSError(ret);
-                        }
+                        CHECK_LC(lte_lc_psm_req(mp_obj_is_true(kwargs->table[i].value)));
                         break;
                     }
                 }
@@ -348,10 +425,8 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
         case MP_QSTR_mode: {
             enum lte_lc_system_mode mode;
             enum lte_lc_system_mode_preference preference;
-            int ret = lte_lc_system_mode_get(&mode, &preference);
-            if (ret) {
-                mp_raise_OSError(ret);
-            }
+            CHECK_LC(lte_lc_system_mode_get(&mode, &preference));
+
             uint8_t mode_ret = 0;
             uint8_t pref_ret = 0;
             switch (mode) {
@@ -406,13 +481,19 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
 }
 MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_config_obj, 1, network_cell_config);
 
+STATIC mp_obj_t string_status_value(enum modem_info info) {
+    char data[MODEM_INFO_MAX_RESPONSE_SIZE];
+    int ret;
+    CHECK_LC(modem_info_init());
+    CHECK_LC(modem_info_string_get(info, data, sizeof(data)));
+    return mp_obj_new_str(data, strlen(data));
+}
+
 STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
+    int ret;
     if (n_args == 1) {
         enum lte_lc_nw_reg_status reg_status;
-        int ret = lte_lc_nw_reg_status_get(&reg_status);
-        if (ret) {
-            mp_raise_OSError(ret);
-        }
+        CHECK_LC(lte_lc_nw_reg_status_get(&reg_status));
         return mp_obj_new_int_from_uint(reg_status);
     }
     // There's an argument, get that status
@@ -432,6 +513,39 @@ STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
                     return mp_obj_new_int_from_uint(LTE_MODE_NBIOT);
             }
         }
+        case MP_QSTR_mccmnc: {
+            char mccmnc[10];
+            CHECK_LC(nrf_modem_at_printf("AT+COPS=3,2"));
+            CHECK_LC(nrf_modem_at_scanf("AT+COPS?","+COPS: %*u,%*u,\"%9[^\"]\",%*u", mccmnc));
+            return mp_obj_new_str(mccmnc, strlen(mccmnc));
+        }
+        case MP_QSTR_uuid: {
+            struct nrf_device_uuid dev = {0};
+            CHECK_LC(modem_jwt_get_uuids(&dev, NULL));
+            return mp_obj_new_str(dev.str, strlen(dev.str));
+        }
+        case MP_QSTR_band: {
+            uint16_t band;
+            CHECK_LC(modem_info_init());
+            CHECK_LC(modem_info_short_get(MODEM_INFO_CUR_BAND, &band));
+            return mp_obj_new_int_from_uint(band);
+        }
+        case MP_QSTR_uiccMode: {
+            uint16_t mode;
+            CHECK_LC(modem_info_init());
+            CHECK_LC(modem_info_short_get(MODEM_INFO_UICC, &mode));
+            return mp_obj_new_int_from_uint(mode);
+        }
+        case MP_QSTR_imei:
+            return string_status_value(MODEM_INFO_IMEI);
+        case MP_QSTR_ipAddress:
+            return string_status_value(MODEM_INFO_IP_ADDRESS);
+        case MP_QSTR_apn:
+            return string_status_value(MODEM_INFO_APN);
+        case MP_QSTR_iccid:
+            return string_status_value(MODEM_INFO_ICCID);
+        case MP_QSTR_imsi:
+            return string_status_value(MODEM_INFO_IMSI);
         default:
             mp_raise_ValueError(MP_ERROR_TEXT("Unknown param"));
     }
@@ -443,10 +557,8 @@ STATIC mp_obj_t network_cell_at(mp_obj_t self_in, mp_obj_t at_string) {
     const char *at = mp_obj_str_get_str(at_string);
     char buf[50];
 
-    int ret = nrf_modem_at_cmd(buf, sizeof(buf), at);
-    if (ret) {
-        mp_raise_OSError(ret);
-    }
+    int ret;
+    CHECK_LC(nrf_modem_at_cmd(buf, sizeof(buf), at));
     return mp_obj_new_str(buf, strlen(buf));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_cell_at_obj, network_cell_at);
@@ -492,32 +604,6 @@ STATIC mp_obj_t network_cell_irq(size_t n_args, const mp_obj_t *args, mp_map_t *
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_irq_obj, 1, network_cell_irq);
 
-STATIC mp_obj_t network_cell_uuid(mp_obj_t self_in) {
-    struct nrf_device_uuid dev = {0};
-
-    int ret = modem_jwt_get_uuids(&dev, NULL);
-
-    if (ret) {
-        mp_raise_OSError(ret);
-    }
-    return mp_obj_new_str(dev.str, strlen(dev.str));
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_uuid_obj, network_cell_uuid);
-
-STATIC mp_obj_t network_cell_imei(mp_obj_t self_in) {
-	char imei_buf[IMEI_LEN + 6 + 1]; /* Add 6 for \r\nOK\r\n and 1 for \0 */
-
-	/* Retrieve device IMEI from modem. */
-	int ret = nrf_modem_at_cmd(imei_buf, ARRAY_SIZE(imei_buf), "AT+CGSN");
-
-	if (ret) {
-		mp_raise_OSError(ret);
-	}
-
-    return mp_obj_new_str(imei_buf, IMEI_LEN);
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_imei_obj, network_cell_imei);
-
 void resp_callback(const char *at_response) {
     at_resp = at_response;
     k_sem_give(&at_sem);
@@ -542,7 +628,7 @@ STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t 
                     ret = -1;
             }
             if (ret) {
-                mp_raise_OSError(ret);
+                return mp_obj_new_int(ret);
             }
             k_sem_take(&at_sem, K_FOREVER);
             mp_obj_t list = mp_obj_new_list(0, NULL);
@@ -575,10 +661,7 @@ STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t 
             if (type > 6) {
                 mp_raise_ValueError(MP_ERROR_TEXT("Invalid type"));
             }
-            ret = nrf_modem_at_printf("AT%%CMNG=0,%u,%u,\"%s\"", sec_tag, type, mp_obj_str_get_str(args[4]));
-            if (ret) {
-                mp_raise_OSError(ret);
-            }
+            CHECK_LC(nrf_modem_at_printf("AT%%CMNG=0,%u,%u,\"%s\"", sec_tag, type, mp_obj_str_get_str(args[4])));
             return mp_const_none;
         }
         case MP_QSTR_delete: {
@@ -593,10 +676,7 @@ STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t 
             if (type > 6) {
                 mp_raise_ValueError(MP_ERROR_TEXT("Invalid type"));
             }
-            ret = nrf_modem_at_printf("AT%%CMNG=3,%u,%u", sec_tag, type);
-            if (ret) {
-                mp_raise_OSError(ret);
-            }
+            CHECK_LC(nrf_modem_at_printf("AT%%CMNG=3,%u,%u", sec_tag, type));
             return mp_const_none;
         }
     }
@@ -737,8 +817,6 @@ STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&network_cell_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_at), MP_ROM_PTR(&network_cell_at_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_cell_irq_obj) },
-    { MP_ROM_QSTR(MP_QSTR_uuid), MP_ROM_PTR(&network_cell_uuid_obj) },
-    { MP_ROM_QSTR(MP_QSTR_imei), MP_ROM_PTR(&network_cell_imei_obj) },
 // Certificate management
     { MP_ROM_QSTR(MP_QSTR_cert), MP_ROM_PTR(&network_cell_cert_obj) },
 #ifdef CONFIG_LOCATION

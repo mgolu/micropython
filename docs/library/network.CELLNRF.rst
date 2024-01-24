@@ -63,6 +63,14 @@ Methods
 
    - ``'mode'`` Retrieve the current network mode. Can be ``network.LTE_MODE_LTEM`` or 
       ``network.LTE_MODE_NBIOT``
+   - ``'mccmnc'`` Retrieve the current Mobile Country Code and Mobile Network Code
+   - ``'imei'`` Get the device's IMEI
+   - ``'uuid'`` Get the device's UUID
+   - ``'band'`` Retrieve the band for the current connection
+   - ``'ipAddress'`` Retrieve the current IP Address of the device
+   - ``'apn'`` Retrieve the current APN
+   - ``'iccid'`` Retrieve the ICCID from the SIM card
+   - ``'imsi'`` Retrieve the IMSI from the SIM card
 
 .. method:: CELL.config('param')
             CELL.config(param=value, ...)
