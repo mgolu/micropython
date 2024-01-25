@@ -69,23 +69,40 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_shell_exec_obj, mod_shell_exec);
 #endif // CONFIG_SHELL_BACKEND_SERIAL
 
 #if defined(CONFIG_PM_DEVICE) && !defined(CONFIG_CONSOLE_SUBSYS)
-void console_enable_fn(struct k_work *item) {
-    ARG_UNUSED(item);
+STATIC mp_obj_t console_enable() {
     static const struct device *uart_console_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
     pm_device_action_run(uart_console_dev, PM_DEVICE_ACTION_RESUME);
+    return mp_const_none;
 }
-static K_WORK_DELAYABLE_DEFINE(console_enable, console_enable_fn);
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(console_enable_obj, console_enable);
 
-STATIC mp_obj_t disable_console(mp_obj_t seconds) {
+void console_enable_fn(struct k_work *item) {
+    ARG_UNUSED(item);
+    console_enable();
+}
+static K_WORK_DELAYABLE_DEFINE(console_enable_wk, console_enable_fn);
+
+STATIC mp_obj_t console_disable(mp_obj_t seconds) {
     static const struct device *uart_console_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
     pm_device_action_run(uart_console_dev, PM_DEVICE_ACTION_SUSPEND);
     int delay = mp_obj_get_int(seconds);
     if (delay > 0) {
-        k_work_schedule(&console_enable, K_SECONDS(mp_obj_get_int(seconds)));
+        k_work_schedule(&console_enable_wk, K_SECONDS(mp_obj_get_int(seconds)));
     }
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_1(disable_console_obj, disable_console);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(console_disable_obj, console_disable);
+
+STATIC mp_obj_t console_is_enabled() {
+    enum pm_device_state state;
+    static const struct device *uart_console_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+    int ret = pm_device_state_get(uart_console_dev, &state);
+    if (ret) {
+        mp_raise_OSError(ret);
+    }
+    return mp_obj_new_bool(state == PM_DEVICE_STATE_ACTIVE);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(console_is_enabled_obj, console_is_enabled);
 #endif
 
 STATIC const mp_rom_map_elem_t mp_module_time_globals_table[] = {
@@ -105,7 +122,9 @@ STATIC const mp_rom_map_elem_t mp_module_time_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_FlashArea), MP_ROM_PTR(&zephyr_flash_area_type) },
     #endif
     #if defined(CONFIG_PM_DEVICE) && !defined(CONFIG_CONSOLE_SUBSYS)
-    { MP_ROM_QSTR(MP_QSTR_console_disable), MP_ROM_PTR(&disable_console_obj) },
+    { MP_ROM_QSTR(MP_QSTR_console_disable), MP_ROM_PTR(&console_disable_obj) },
+    { MP_ROM_QSTR(MP_QSTR_console_enable), MP_ROM_PTR(&console_enable_obj) },
+    { MP_ROM_QSTR(MP_QSTR_console_is_enabled), MP_ROM_PTR(&console_is_enabled_obj) },
     #endif
 };
 
