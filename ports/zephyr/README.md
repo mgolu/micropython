@@ -170,36 +170,31 @@ reference materials). To execute the above sample, copy it to clipboard, in
 MicroPython REPL enter "paste mode" using Ctrl+E, paste clipboard, press
 Ctrl+D to finish paste mode and start execution.
 
-To respond to Pin change IRQs, on a FRDM-K64F board run:
 
-```py
-from machine import Pin
 
-SW2 = Pin(("GPIO_2", 6), Pin.IN)
-SW3 = Pin(("GPIO_0", 4), Pin.IN)
+Build with the nRF Connect SDK
+------------------------------
 
-SW2.irq(lambda t: print("SW2 changed"))
-SW3.irq(lambda t: print("SW3 changed"))
+You might want to build MicroPython using the nRF Connect SDK for a few
+reasons. For example, the nRF Connect SDK has a graphical installer that
+makes it easier to install Zephyr and all the requirements to build it.
+There is also the nRF Connect for VS Code Extension that turns VS Code
+into an IDE for developing applications, including flashing and debugging.
 
-while True:
-    pass
-```
+Another reason is if you are trying to support a Nordic device that has
+drivers which are not yet available in the upstream Zephyr tree, or a
+development kit where the board definition files are not available. 
 
-Example of using I2C to scan for I2C slaves:
+To install the nRF Connect SDK, follow the instructions here:
+https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/installation/assistant.html 
 
-```py
-from machine import I2C
+* Open VS Code, and open the nRF Connect extension.
+* Click on "Open an existing application" and navigate to <micropython install>/ports/zephyr
+* Now the Zephyr port will be listed as an Application
+* Add a build configuration
+    * Select the board to build for
+    * Add Kconfig fragments (such as board/<board file>, or overlay-bluetooth.conf)
+    * Click on Build configuration
 
-i2c = I2C("I2C_0")
-i2c.scan()
-```
+Now you can use the nRF Connect extension to flash to your board.
 
-Example of using SPI to write a buffer to the MOSI pin:
-
-```py
-from machine import SPI
-
-spi = SPI("SPI_0")
-spi.init(baudrate=500000, polarity=1, phase=1, bits=8, firstbit=SPI.MSB)
-spi.write(b'abcd')
-```
