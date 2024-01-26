@@ -131,22 +131,22 @@ STATIC void socket_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kin
 }
 
 STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
-#if CONFIG_NET_SOCKETS_OFFLOAD
+    #if CONFIG_NET_SOCKETS_OFFLOAD
     mp_arg_check_num(n_args, n_kw, 0, 6, false);
-#else
+    #else
     mp_arg_check_num(n_args, n_kw, 0, 4, false);
-#endif
+    #endif
 
     socket_obj_t *socket = socket_new();
 
     int family = AF_INET;
     int socktype = SOCK_STREAM;
     int proto = -1;
-#if CONFIG_NET_SOCKETS_OFFLOAD
+    #if CONFIG_NET_SOCKETS_OFFLOAD
     sec_tag_t sec_tag = -1;
     int peer_verify = 2;
     const char *hostname = NULL;
-#endif
+    #endif
 
     if (n_args >= 1) {
         family = mp_obj_get_int(args[0]);
@@ -154,7 +154,7 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
             socktype = mp_obj_get_int(args[1]);
             if (n_args >= 3) {
                 proto = mp_obj_get_int(args[2]);
-#if CONFIG_NET_SOCKETS_OFFLOAD
+                #if CONFIG_NET_SOCKETS_OFFLOAD
                 if (n_args >= 4) {
                     sec_tag = mp_obj_get_int(args[3]);
                     if (n_args >= 5) {
@@ -164,7 +164,7 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
                         }
                     }
                 }
-#endif
+                #endif
             }
         }
     }
@@ -175,16 +175,16 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
             proto = IPPROTO_UDP;
         }
     }
-#if CONFIG_NET_SOCKETS_OFFLOAD
-    if ( (proto == IPPROTO_TLS_1_2 || proto == IPPROTO_DTLS_1_2) && sec_tag < 0) {
+    #if CONFIG_NET_SOCKETS_OFFLOAD
+    if ((proto == IPPROTO_TLS_1_2 || proto == IPPROTO_DTLS_1_2) && sec_tag < 0) {
         mp_raise_TypeError(MP_ERROR_TEXT("Invalid sec_tag value"));
     }
-#endif
+    #endif
 
     socket->ctx = zsock_socket(family, socktype, proto);
     RAISE_SOCK_ERRNO(socket->ctx);
     socket->family = family;
-#if CONFIG_NET_SOCKETS_OFFLOAD
+    #if CONFIG_NET_SOCKETS_OFFLOAD
     if (proto == IPPROTO_TLS_1_2 || proto == IPPROTO_DTLS_1_2) {
         setsockopt(socket->ctx, SOL_TLS, TLS_SEC_TAG_LIST, &sec_tag, sizeof(sec_tag_t));
         setsockopt(socket->ctx, SOL_TLS, TLS_PEER_VERIFY, &peer_verify, sizeof(peer_verify));
@@ -192,7 +192,7 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
             setsockopt(socket->ctx, SOL_TLS, TLS_HOSTNAME, hostname, strlen(hostname));
         }
     }
-#endif
+    #endif
     return MP_OBJ_FROM_PTR(socket);
 }
 
@@ -468,7 +468,7 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     (void)mp_obj_get_int(port_in);
     state.port = port_in;
     state.result = mp_obj_new_list(0, NULL);
-#if !CONFIG_NET_SOCKETS_OFFLOAD
+    #if !CONFIG_NET_SOCKETS_OFFLOAD
     k_sem_init(&state.sem, 0, UINT_MAX);
 
     for (int i = 2; i--;) {
@@ -487,11 +487,11 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
     if (state.status != 0 && len == 0) {
         mp_raise_OSError(state.status);
     }
-#else // CONFIG_NET_SOCKETS_OFFLOAD
+    #else // CONFIG_NET_SOCKETS_OFFLOAD
     struct addrinfo *ai = NULL;
-	struct addrinfo hints = {
-		.ai_family = family
-	};
+    struct addrinfo hints = {
+        .ai_family = family
+    };
 
     RAISE_ERRNO(getaddrinfo(host, NULL, &hints, &ai));
 
@@ -505,7 +505,7 @@ STATIC mp_obj_t mod_getaddrinfo(size_t n_args, const mp_obj_t *args) {
         mp_obj_list_append(state.result, MP_OBJ_FROM_PTR(tuple));
     } while (ai->ai_next != NULL);
     freeaddrinfo(ai);
-#endif // !CONFIG_NET_SOCKETS_OFFLOAD
+    #endif // !CONFIG_NET_SOCKETS_OFFLOAD
     return state.result;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_getaddrinfo_obj, 2, 3, mod_getaddrinfo);
@@ -536,20 +536,20 @@ STATIC const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_SOCK_STREAM), MP_ROM_INT(SOCK_STREAM) },
     { MP_ROM_QSTR(MP_QSTR_SOCK_DGRAM), MP_ROM_INT(SOCK_DGRAM) },
     { MP_ROM_QSTR(MP_QSTR_SOCK_RAW), MP_ROM_INT(SOCK_RAW) },
-#if CONFIG_NET_SOCKETS_OFFLOAD
+    #if CONFIG_NET_SOCKETS_OFFLOAD
     { MP_ROM_QSTR(MP_QSTR_IPPROTO_TLS_1_2), MP_ROM_INT(IPPROTO_TLS_1_2) },
     { MP_ROM_QSTR(MP_QSTR_TLS_PEER_VERIFY_NONE), MP_ROM_INT(TLS_PEER_VERIFY_NONE) },
     { MP_ROM_QSTR(MP_QSTR_TLS_PEER_VERIFY_OPTIONAL), MP_ROM_INT(TLS_PEER_VERIFY_OPTIONAL) },
     { MP_ROM_QSTR(MP_QSTR_TLS_PEER_VERIFY_REQUIRED), MP_ROM_INT(TLS_PEER_VERIFY_REQUIRED) },
-#endif
+    #endif
 
     { MP_ROM_QSTR(MP_QSTR_SOL_SOCKET), MP_ROM_INT(1) },
     { MP_ROM_QSTR(MP_QSTR_SO_REUSEADDR), MP_ROM_INT(2) },
 
     { MP_ROM_QSTR(MP_QSTR_getaddrinfo), MP_ROM_PTR(&mod_getaddrinfo_obj) },
-#if !CONFIG_NET_SOCKETS_OFFLOAD
+    #if !CONFIG_NET_SOCKETS_OFFLOAD
     { MP_ROM_QSTR(MP_QSTR_pkt_get_info), MP_ROM_PTR(&pkt_get_info_obj) },
-#endif
+    #endif
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_socket_globals, mp_module_socket_globals_table);
