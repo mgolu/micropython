@@ -48,6 +48,7 @@ MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);
 
 #if MICROPY_PY_NETWORK_NRF91
 
+#ifdef CONFIG_LOCATION
 #define MP_CELL_IRQ_NW_REG_STATUS       (0x1)
 #define MP_CELL_IRQ_PSM_UPDATE          (0x2)
 #define MP_CELL_IRQ_EDRX_UPDATE         (0x4)
@@ -59,6 +60,9 @@ MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);
 #define MP_CELL_IRQ_LOCATION_FOUND      (0x100)
 #define MP_CELL_IRQ_LOCATION_TIMEOUT    (0x200)
 #define MP_CELL_IRQ_LOCATION_ERROR      (0x400)
+#define MP_CELL_IRQ_GNSS_ASSISTANCE_REQUEST (0x800)
+#define MP_CELL_IRQ_CLOUD_LOCATION_REQUEST  (0x1000)
+#endif // CONFIG_LOCATION
 
 #define LTE_MODE_LTEM   1
 #define LTE_MODE_NBIOT  2

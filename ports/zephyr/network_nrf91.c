@@ -46,6 +46,8 @@
 
 #ifdef CONFIG_LOCATION
 #include <modem/location.h>
+#include <nrf_modem_gnss.h>
+#include <nrf_cloud_agnss_schema_v1.h>
 #endif
 
 LOG_MODULE_REGISTER(mpy_network, LOG_LEVEL_DBG);
@@ -145,12 +147,52 @@ static void lte_handler(const struct lte_lc_evt *const evt)
     }
 }
 #ifdef CONFIG_LOCATION
+static void get_requested_data_types(mp_obj_t list, struct nrf_modem_gnss_agnss_data_frame request)
+{
+    for(int i = 0; i < request.system_count; ++i) {
+        if (request.system[i].system_id == NRF_MODEM_GNSS_SYSTEM_GPS) {
+            if (request.system[i].sv_mask_ephe) {
+                mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_GPS_EPHEMERIDES));
+            }
+            if (request.system[i].sv_mask_alm) {
+                mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_GPS_ALMANAC));
+            }
+            if (request.data_flags & NRF_MODEM_GNSS_AGNSS_INTEGRITY_REQUEST) {
+                mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_GPS_INTEGRITY));
+            }
+        } else if (request.system[i].system_id == NRF_MODEM_GNSS_SYSTEM_QZSS) {
+            if (request.system[i].sv_mask_ephe) {
+                mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_QZSS_EPHEMERIDES));
+            }
+            if (request.system[i].sv_mask_alm) {
+                mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_QZSS_ALMANAC));
+            }
+            if (request.data_flags & NRF_MODEM_GNSS_AGNSS_INTEGRITY_REQUEST) {
+                mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_QZSS_INTEGRITY));
+            }
+        }
+    }
+    if (request.data_flags & NRF_MODEM_GNSS_AGNSS_KLOBUCHAR_REQUEST) {
+        mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_KLOBUCHAR_CORRECTION));
+    }
+    if (request.data_flags & NRF_MODEM_GNSS_AGNSS_NEQUICK_REQUEST) {
+        mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_NEQUICK_CORRECTION));
+    }
+    if (request.data_flags & NRF_MODEM_GNSS_AGNSS_GPS_SYS_TIME_AND_SV_TOW_REQUEST) {
+        mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_GPS_TOWS));
+        mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_GPS_SYSTEM_CLOCK));
+    }
+    if (request.data_flags & NRF_MODEM_GNSS_AGNSS_POSITION_REQUEST) {
+        mp_obj_list_append(list, mp_obj_new_int(NRF_CLOUD_AGNSS_LOCATION));
+    }
+}
+
 static void location_event_handler(const struct location_event_data *event_data)
 {
 	switch (event_data->id) {
 	case LOCATION_EVT_LOCATION: {
         if (irq_mask & MP_CELL_IRQ_LOCATION_FOUND) {
-            mp_obj_t tuple[2] = { 0, 0 };
+            mp_obj_t tuple[2];
             tuple[0] = mp_obj_new_int(MP_CELL_IRQ_LOCATION_FOUND);
             mp_obj_t params[14];
             uint8_t idx = 0;
@@ -194,7 +236,49 @@ static void location_event_handler(const struct location_event_data *event_data)
             mp_sched_schedule(MP_OBJ_FROM_PTR(&cell_invoke_irq_obj), mp_obj_new_tuple(1, tuple));
         }
 		break;
-
+    case LOCATION_EVT_GNSS_ASSISTANCE_REQUEST: {
+        if (irq_mask & MP_CELL_IRQ_GNSS_ASSISTANCE_REQUEST) {
+            mp_obj_t tuple[2];
+            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_GNSS_ASSISTANCE_REQUEST);
+            tuple[1] = mp_obj_new_list(0, NULL);
+            get_requested_data_types(tuple[1], event_data->agnss_request);
+            mp_sched_schedule(MP_OBJ_FROM_PTR(&cell_invoke_irq_obj), mp_obj_new_tuple(2, tuple));
+        }
+        break;
+    }
+    case LOCATION_EVT_CLOUD_LOCATION_EXT_REQUEST: {
+        if (irq_mask & MP_CELL_IRQ_CLOUD_LOCATION_REQUEST) {
+            mp_obj_t tuple[2];
+            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_CLOUD_LOCATION_REQUEST);
+            mp_obj_t data[3];
+            LOG_DBG("Current cell: %u", event_data->cloud_location_request.cell_data->current_cell.id);
+            mp_obj_t ccell[7] = {
+                mp_obj_new_int(event_data->cloud_location_request.cell_data->current_cell.mcc),
+                mp_obj_new_int(event_data->cloud_location_request.cell_data->current_cell.mnc),
+                mp_obj_new_int_from_uint(event_data->cloud_location_request.cell_data->current_cell.tac),
+                mp_obj_new_int_from_uint(event_data->cloud_location_request.cell_data->current_cell.id),
+                mp_obj_new_int(RSRP_IDX_TO_DBM(event_data->cloud_location_request.cell_data->current_cell.rsrp)),
+                mp_obj_new_int(RSRQ_IDX_TO_DB(event_data->cloud_location_request.cell_data->current_cell.rsrq)),
+                mp_obj_new_int_from_uint(event_data->cloud_location_request.cell_data->current_cell.earfcn)
+            };
+            data[0] = mp_obj_new_tuple(7, ccell);
+            data[1] = mp_obj_new_list(0, NULL);
+            LOG_DBG("Neighbor cells: %u", event_data->cloud_location_request.cell_data->ncells_count);
+            for (int i = 0; i < event_data->cloud_location_request.cell_data->ncells_count; ++i) {
+                mp_obj_t ncell[4] = {
+                    mp_obj_new_int_from_uint(event_data->cloud_location_request.cell_data->neighbor_cells[i].phys_cell_id),
+                    mp_obj_new_int_from_uint(event_data->cloud_location_request.cell_data->neighbor_cells[i].earfcn),
+                    mp_obj_new_int(RSRP_IDX_TO_DBM(event_data->cloud_location_request.cell_data->neighbor_cells[i].rsrp)),
+                    mp_obj_new_int(RSRQ_IDX_TO_DB(event_data->cloud_location_request.cell_data->neighbor_cells[i].rsrq))
+                };
+                mp_obj_list_append(data[1], mp_obj_new_tuple(4, ncell));
+            }
+            data[2] = mp_const_none; // TODO: Add Wi-Fi support
+            tuple[1] = mp_obj_new_tuple(3, data);
+            mp_sched_schedule(MP_OBJ_FROM_PTR(&cell_invoke_irq_obj), mp_obj_new_tuple(2, tuple));
+        }
+        break;
+    }
 	default:
 		LOG_WRN("Getting location: Unknown event");
 		break;
@@ -489,6 +573,14 @@ STATIC mp_obj_t string_status_value(enum modem_info info) {
     return mp_obj_new_str(data, strlen(data));
 }
 
+STATIC mp_obj_t int_status_value(enum modem_info info) {
+    uint16_t data;
+    int ret;
+    CHECK_LC(modem_info_init());
+    CHECK_LC(modem_info_short_get(info, &data));
+    return mp_obj_new_int_from_uint(data);
+}
+
 STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
     int ret;
     if (n_args == 1) {
@@ -513,29 +605,27 @@ STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
                     return mp_obj_new_int_from_uint(LTE_MODE_NBIOT);
             }
         }
-        case MP_QSTR_mccmnc: {
-            char mccmnc[10];
-            CHECK_LC(nrf_modem_at_printf("AT+COPS=3,2"));
-            CHECK_LC(nrf_modem_at_scanf("AT+COPS?","+COPS: %*u,%*u,\"%9[^\"]\",%*u", mccmnc));
-            return mp_obj_new_str(mccmnc, strlen(mccmnc));
-        }
         case MP_QSTR_uuid: {
             struct nrf_device_uuid dev = {0};
             CHECK_LC(modem_jwt_get_uuids(&dev, NULL));
             return mp_obj_new_str(dev.str, strlen(dev.str));
         }
-        case MP_QSTR_band: {
-            uint16_t band;
+        case MP_QSTR_rsrp: {
+            uint16_t rsrp;
             CHECK_LC(modem_info_init());
-            CHECK_LC(modem_info_short_get(MODEM_INFO_CUR_BAND, &band));
-            return mp_obj_new_int_from_uint(band);
+            CHECK_LC(modem_info_short_get(MODEM_INFO_RSRP, &rsrp))
+            return mp_obj_new_int(RSRP_IDX_TO_DBM(rsrp));
         }
-        case MP_QSTR_uiccMode: {
-            uint16_t mode;
-            CHECK_LC(modem_info_init());
-            CHECK_LC(modem_info_short_get(MODEM_INFO_UICC, &mode));
-            return mp_obj_new_int_from_uint(mode);
-        }
+        case MP_QSTR_band: 
+            return int_status_value(MODEM_INFO_CUR_BAND);
+        case MP_QSTR_uiccMode: 
+            return int_status_value(MODEM_INFO_UICC);
+        case MP_QSTR_mccmnc:
+            return string_status_value(MODEM_INFO_OPERATOR);
+        case MP_QSTR_cellid:
+            return string_status_value(MODEM_INFO_CELLID);
+        case MP_QSTR_area:
+            return string_status_value(MODEM_INFO_AREA_CODE);
         case MP_QSTR_imei:
             return string_status_value(MODEM_INFO_IMEI);
         case MP_QSTR_ipAddress:
@@ -808,7 +898,27 @@ STATIC mp_obj_t network_cell_location_cancel(mp_obj_t self_in) {
     return mp_obj_new_bool(location_request_cancel() == 0);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_location_cancel_obj, network_cell_location_cancel);
-#endif
+
+STATIC mp_obj_t network_cell_agnss_data_process(mp_obj_t self_in, mp_obj_t data) {
+    mp_buffer_info_t bufinfo;
+    if (!mp_get_buffer(data, &bufinfo, MP_BUFFER_READ)) {
+        return mp_const_none;
+    }
+    return mp_obj_new_int(location_agnss_data_process(bufinfo.buf, bufinfo.len));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_cell_agnss_data_process_obj, network_cell_agnss_data_process);
+
+STATIC mp_obj_t network_cell_location_cloud_fix(size_t n_args, const mp_obj_t *args) {
+    struct location_data loc;
+    loc.latitude = mp_obj_get_float(args[1]);
+    loc.longitude = mp_obj_get_float(args[2]);
+    loc.accuracy = mp_obj_get_float(args[3]);
+    loc.datetime.valid = false;
+    location_cloud_location_ext_result_set(LOCATION_EXT_RESULT_SUCCESS, &loc);
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_cell_location_cloud_fix_obj, 4, 4, network_cell_location_cloud_fix);
+#endif // CONFIG_LOCATION
 
 STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_cell_connect_obj) },
@@ -822,6 +932,8 @@ STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
 #ifdef CONFIG_LOCATION
     { MP_ROM_QSTR(MP_QSTR_location), MP_ROM_PTR(&network_cell_location_obj) },
     { MP_ROM_QSTR(MP_QSTR_location_cancel), MP_ROM_PTR(&network_cell_location_cancel_obj) },
+    { MP_ROM_QSTR(MP_QSTR_agnss_data), MP_ROM_PTR(&network_cell_agnss_data_process_obj) },
+    { MP_ROM_QSTR(MP_QSTR_location_cloud_fix), MP_ROM_PTR(&network_cell_location_cloud_fix_obj) },
 #endif
 };
 STATIC MP_DEFINE_CONST_DICT(cell_if_locals_dict, cell_if_locals_dict_table);
