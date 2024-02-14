@@ -60,7 +60,7 @@ static const char *at_resp = NULL;
 static mp_obj_t irq_handler = mp_const_none;
 static uint32_t irq_mask = 0x0;
 
-#define CHECK_LC(f) if ( (ret = (f)) < 0 ){ return mp_obj_new_int(ret);}
+#define CHECK_RET(f) if ( (ret = (f)) < 0 ){ return mp_obj_new_int(ret);}
 
 STATIC mp_obj_t cell_invoke_irq(mp_obj_t arg) {
     // Send a tuple with the following:
@@ -311,7 +311,7 @@ STATIC mp_obj_t network_cell_make_new(const mp_obj_type_t *type, size_t n_args, 
 
 STATIC mp_obj_t network_cell_connect(mp_obj_t self_in) {
     int ret;
-    CHECK_LC(lte_lc_connect_async(NULL));
+    CHECK_RET(lte_lc_connect_async(NULL));
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_connect_obj, network_cell_connect);
@@ -320,7 +320,7 @@ STATIC mp_obj_t network_cell_isconnected(mp_obj_t self_in) {
     enum lte_lc_nw_reg_status reg_status;
     int ret;
 
-    CHECK_LC(lte_lc_nw_reg_status_get(&reg_status));
+    CHECK_RET(lte_lc_nw_reg_status_get(&reg_status));
     if (reg_status == LTE_LC_NW_REG_REGISTERED_HOME ||
         reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING) {
             return mp_const_true;
@@ -437,7 +437,7 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                             default:
                                 mp_raise_ValueError("Preference value is not valid");
                         }
-                        CHECK_LC(lte_lc_system_mode_set(mode, preference));
+                        CHECK_RET(lte_lc_system_mode_set(mode, preference));
                         break;
                     }
                     case MP_QSTR_edrx: {
@@ -455,20 +455,20 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         char value[5];
                         snprintf(value, sizeof(value), EDRXCODE_TO_BINARY_FORMAT,
                                 EDRXCODE_TO_BINARY(edrx_cycle_encoded[get_cycle_value(edrx_cycle)]));
-                        CHECK_LC(lte_lc_edrx_param_set(LTE_LC_LTE_MODE_LTEM, value));
-                        CHECK_LC(lte_lc_edrx_param_set(LTE_LC_LTE_MODE_NBIOT, value));
+                        CHECK_RET(lte_lc_edrx_param_set(LTE_LC_LTE_MODE_LTEM, value));
+                        CHECK_RET(lte_lc_edrx_param_set(LTE_LC_LTE_MODE_NBIOT, value));
 
                         snprintf(value, sizeof(value), EDRXCODE_TO_BINARY_FORMAT,
                             EDRXCODE_TO_BINARY(get_lte_ptw(edrx_ptw, false)));
-                        CHECK_LC(lte_lc_ptw_set(LTE_LC_LTE_MODE_LTEM, value));
+                        CHECK_RET(lte_lc_ptw_set(LTE_LC_LTE_MODE_LTEM, value));
                         
                         snprintf(value, sizeof(value), EDRXCODE_TO_BINARY_FORMAT,
                             EDRXCODE_TO_BINARY(get_lte_ptw(edrx_ptw, true)));
-                        CHECK_LC(lte_lc_ptw_set(LTE_LC_LTE_MODE_NBIOT, value));
+                        CHECK_RET(lte_lc_ptw_set(LTE_LC_LTE_MODE_NBIOT, value));
                         break;
                     }
                     case MP_QSTR_edrx_enable: {
-                        CHECK_LC(lte_lc_edrx_req(mp_obj_is_true(kwargs->table[i].value)));
+                        CHECK_RET(lte_lc_edrx_req(mp_obj_is_true(kwargs->table[i].value)));
                         break;
                     }
                     case MP_QSTR_psm_params: {
@@ -491,7 +491,7 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         break;
                     }
                     case MP_QSTR_psm_enable: {
-                        CHECK_LC(lte_lc_psm_req(mp_obj_is_true(kwargs->table[i].value)));
+                        CHECK_RET(lte_lc_psm_req(mp_obj_is_true(kwargs->table[i].value)));
                         break;
                     }
                 }
@@ -509,7 +509,7 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
         case MP_QSTR_mode: {
             enum lte_lc_system_mode mode;
             enum lte_lc_system_mode_preference preference;
-            CHECK_LC(lte_lc_system_mode_get(&mode, &preference));
+            CHECK_RET(lte_lc_system_mode_get(&mode, &preference));
 
             uint8_t mode_ret = 0;
             uint8_t pref_ret = 0;
@@ -568,16 +568,16 @@ MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_config_obj, 1, network_cell_config);
 STATIC mp_obj_t string_status_value(enum modem_info info) {
     char data[MODEM_INFO_MAX_RESPONSE_SIZE];
     int ret;
-    CHECK_LC(modem_info_init());
-    CHECK_LC(modem_info_string_get(info, data, sizeof(data)));
+    CHECK_RET(modem_info_init());
+    CHECK_RET(modem_info_string_get(info, data, sizeof(data)));
     return mp_obj_new_str(data, strlen(data));
 }
 
 STATIC mp_obj_t int_status_value(enum modem_info info) {
     uint16_t data;
     int ret;
-    CHECK_LC(modem_info_init());
-    CHECK_LC(modem_info_short_get(info, &data));
+    CHECK_RET(modem_info_init());
+    CHECK_RET(modem_info_short_get(info, &data));
     return mp_obj_new_int_from_uint(data);
 }
 
@@ -585,7 +585,7 @@ STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
     int ret;
     if (n_args == 1) {
         enum lte_lc_nw_reg_status reg_status;
-        CHECK_LC(lte_lc_nw_reg_status_get(&reg_status));
+        CHECK_RET(lte_lc_nw_reg_status_get(&reg_status));
         return mp_obj_new_int_from_uint(reg_status);
     }
     // There's an argument, get that status
@@ -607,13 +607,13 @@ STATIC mp_obj_t network_cell_status(size_t n_args, const mp_obj_t *args) {
         }
         case MP_QSTR_uuid: {
             struct nrf_device_uuid dev = {0};
-            CHECK_LC(modem_jwt_get_uuids(&dev, NULL));
+            CHECK_RET(modem_jwt_get_uuids(&dev, NULL));
             return mp_obj_new_str(dev.str, strlen(dev.str));
         }
         case MP_QSTR_rsrp: {
             uint16_t rsrp;
-            CHECK_LC(modem_info_init());
-            CHECK_LC(modem_info_short_get(MODEM_INFO_RSRP, &rsrp))
+            CHECK_RET(modem_info_init());
+            CHECK_RET(modem_info_short_get(MODEM_INFO_RSRP, &rsrp))
             return mp_obj_new_int(RSRP_IDX_TO_DBM(rsrp));
         }
         case MP_QSTR_band: 
@@ -645,10 +645,10 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_cell_status_obj, 1, 2, networ
 
 STATIC mp_obj_t network_cell_at(mp_obj_t self_in, mp_obj_t at_string) {
     const char *at = mp_obj_str_get_str(at_string);
-    char buf[50];
+    char buf[500];
 
     int ret;
-    CHECK_LC(nrf_modem_at_cmd(buf, sizeof(buf), at));
+    CHECK_RET(nrf_modem_at_cmd(buf, sizeof(buf), at));
     return mp_obj_new_str(buf, strlen(buf));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_cell_at_obj, network_cell_at);
@@ -751,7 +751,7 @@ STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t 
             if (type > 6) {
                 mp_raise_ValueError(MP_ERROR_TEXT("Invalid type"));
             }
-            CHECK_LC(nrf_modem_at_printf("AT%%CMNG=0,%u,%u,\"%s\"", sec_tag, type, mp_obj_str_get_str(args[4])));
+            CHECK_RET(nrf_modem_at_printf("AT%%CMNG=0,%u,%u,\"%s\"", sec_tag, type, mp_obj_str_get_str(args[4])));
             return mp_const_none;
         }
         case MP_QSTR_delete: {
@@ -766,7 +766,7 @@ STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t 
             if (type > 6) {
                 mp_raise_ValueError(MP_ERROR_TEXT("Invalid type"));
             }
-            CHECK_LC(nrf_modem_at_printf("AT%%CMNG=3,%u,%u", sec_tag, type));
+            CHECK_RET(nrf_modem_at_printf("AT%%CMNG=3,%u,%u", sec_tag, type));
             return mp_const_none;
         }
     }
@@ -920,6 +920,105 @@ STATIC mp_obj_t network_cell_location_cloud_fix(size_t n_args, const mp_obj_t *a
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_cell_location_cloud_fix_obj, 4, 4, network_cell_location_cloud_fix);
 #endif // CONFIG_LOCATION
 
+#ifdef CONFIG_PDN
+STATIC mp_obj_t network_cell_pdn_id(mp_obj_t self_in, mp_obj_t cid) {
+    if (!mp_obj_is_int(cid)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("CID must be an integer"));
+    }
+    return mp_obj_new_int(pdn_id_get(mp_obj_get_int(cid)));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_cell_pdn_id_obj, network_cell_pdn_id);
+
+STATIC mp_obj_t network_cell_pdn_create(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kwargs) {
+    enum { ARG_apn, ARG_family, ARG_ip4_addr_alloc, ARG_nslpi, ARG_secure_pco, ARG_auth, ARG_user, ARG_password };
+    
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_apn, MP_ARG_REQUIRED | MP_ARG_OBJ },
+        { MP_QSTR_family, MP_ARG_REQUIRED | MP_ARG_INT },
+        { MP_QSTR_ip4_addr_alloc, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_nslpi, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_secure_pco, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_auth, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
+        { MP_QSTR_user, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_password, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+    };
+
+    // parse args
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kwargs, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+    uint8_t cid = -1;
+    int ret;
+
+    ret = pdn_ctx_create(&cid, NULL);
+    if (ret) {
+        goto fail;
+    }
+    
+    if (args[ARG_ip4_addr_alloc].u_int != 0 || args[ARG_nslpi].u_int != 0 || args[ARG_secure_pco].u_int != 0) {
+        struct pdn_pdp_opt opts = {
+            .ip4_addr_alloc = args[ARG_ip4_addr_alloc].u_int,
+            .nslpi = args[ARG_nslpi].u_int,
+            .secure_pco = args[ARG_secure_pco].u_int
+        };
+        ret = pdn_ctx_configure(cid, mp_obj_str_get_str(args[ARG_apn].u_obj), args[ARG_family].u_int, &opts);
+    } else {
+        ret = pdn_ctx_configure(cid, mp_obj_str_get_str(args[ARG_apn].u_obj), args[ARG_family].u_int, NULL);
+    }
+    if (ret) {
+        goto fail;
+    }
+    if (args[ARG_user].u_obj != mp_const_none && args[ARG_password].u_obj != mp_const_none) {
+        ret = pdn_ctx_auth_set(cid, args[ARG_auth].u_int, mp_obj_str_get_str(args[ARG_user].u_obj), mp_obj_str_get_str(args[ARG_password].u_obj));
+        if (ret) {
+            goto fail;
+        }
+    }
+    return mp_obj_new_int(cid);
+    
+fail:
+    if (cid != -1) {
+        pdn_ctx_destroy(cid);
+    }
+    return mp_obj_new_int(ret);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_pdn_create_obj, 2, network_cell_pdn_create);
+
+STATIC mp_obj_t network_cell_pdn_activate(mp_obj_t self_in, mp_obj_t cid, mp_obj_t activate) {
+    if (!mp_obj_is_int(cid)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("CID must be an integer"));
+    }
+    if (!mp_obj_is_bool(activate)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("Argument must be True or False"));
+    }
+    int ret;
+    if (mp_obj_is_true(activate)) {
+        CHECK_RET(pdn_activate(mp_obj_get_int(cid), NULL, NULL));
+    } else {
+        CHECK_RET(pdn_deactivate(mp_obj_get_int(cid)));
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(network_cell_pdn_activate_obj, network_cell_pdn_activate);
+
+STATIC mp_obj_t network_cell_pdn_destroy(mp_obj_t self_in, mp_obj_t cid) {
+    if (!mp_obj_is_int(cid)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("CID must be an integer"));
+    }
+    int ret;
+    CHECK_RET(pdn_ctx_destroy(mp_obj_get_int(cid)));
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(network_cell_pdn_destroy_obj, network_cell_pdn_destroy);
+
+STATIC mp_obj_t network_cell_pdn_default_apn(mp_obj_t self_in) {
+    char buf[32];
+    int ret;
+    CHECK_RET(pdn_default_apn_get(buf, sizeof(buf)));
+    return mp_obj_new_str(buf, strlen(buf));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_pdn_default_apn_obj, network_cell_pdn_default_apn);
+#endif
+
 STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_cell_connect_obj) },
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_cell_isconnected_obj) },
@@ -929,12 +1028,19 @@ STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_cell_irq_obj) },
 // Certificate management
     { MP_ROM_QSTR(MP_QSTR_cert), MP_ROM_PTR(&network_cell_cert_obj) },
-#ifdef CONFIG_LOCATION
+    #ifdef CONFIG_LOCATION
     { MP_ROM_QSTR(MP_QSTR_location), MP_ROM_PTR(&network_cell_location_obj) },
     { MP_ROM_QSTR(MP_QSTR_location_cancel), MP_ROM_PTR(&network_cell_location_cancel_obj) },
     { MP_ROM_QSTR(MP_QSTR_agnss_data), MP_ROM_PTR(&network_cell_agnss_data_process_obj) },
     { MP_ROM_QSTR(MP_QSTR_location_cloud_fix), MP_ROM_PTR(&network_cell_location_cloud_fix_obj) },
-#endif
+    #endif
+    #ifdef CONFIG_PDN
+    { MP_ROM_QSTR(MP_QSTR_pdn_id), MP_ROM_PTR(&network_cell_pdn_id_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pdn_create), MP_ROM_PTR(&network_cell_pdn_create_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pdn_activate), MP_ROM_PTR(&network_cell_pdn_activate_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pdn_destroy), MP_ROM_PTR(&network_cell_pdn_destroy_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pdn_default_apn), MP_ROM_PTR(&network_cell_pdn_default_apn_obj) },
+    #endif
 };
 STATIC MP_DEFINE_CONST_DICT(cell_if_locals_dict, cell_if_locals_dict_table);
 

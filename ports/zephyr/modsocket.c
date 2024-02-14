@@ -131,22 +131,13 @@ STATIC void socket_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kin
 }
 
 STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
-    #if CONFIG_NET_SOCKETS_OFFLOAD
-    mp_arg_check_num(n_args, n_kw, 0, 6, false);
-    #else
     mp_arg_check_num(n_args, n_kw, 0, 4, false);
-    #endif
 
     socket_obj_t *socket = socket_new();
 
     int family = AF_INET;
     int socktype = SOCK_STREAM;
     int proto = -1;
-    #if CONFIG_NET_SOCKETS_OFFLOAD
-    sec_tag_t sec_tag = -1;
-    int peer_verify = 2;
-    const char *hostname = NULL;
-    #endif
 
     if (n_args >= 1) {
         family = mp_obj_get_int(args[0]);
@@ -154,17 +145,6 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
             socktype = mp_obj_get_int(args[1]);
             if (n_args >= 3) {
                 proto = mp_obj_get_int(args[2]);
-                #if CONFIG_NET_SOCKETS_OFFLOAD
-                if (n_args >= 4) {
-                    sec_tag = mp_obj_get_int(args[3]);
-                    if (n_args >= 5) {
-                        peer_verify = mp_obj_get_int(args[4]);
-                        if (n_args >= 6) {
-                            hostname = mp_obj_str_get_str(args[5]);
-                        }
-                    }
-                }
-                #endif
             }
         }
     }
@@ -175,26 +155,41 @@ STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, size_t n_args, size_t
             proto = IPPROTO_UDP;
         }
     }
-    #if CONFIG_NET_SOCKETS_OFFLOAD
-    if ((proto == IPPROTO_TLS_1_2 || proto == IPPROTO_DTLS_1_2) && sec_tag < 0) {
-        mp_raise_TypeError(MP_ERROR_TEXT("Invalid sec_tag value"));
-    }
-    #endif
 
     socket->ctx = zsock_socket(family, socktype, proto);
     RAISE_SOCK_ERRNO(socket->ctx);
     socket->family = family;
-    #if CONFIG_NET_SOCKETS_OFFLOAD
-    if (proto == IPPROTO_TLS_1_2 || proto == IPPROTO_DTLS_1_2) {
-        setsockopt(socket->ctx, SOL_TLS, TLS_SEC_TAG_LIST, &sec_tag, sizeof(sec_tag_t));
-        setsockopt(socket->ctx, SOL_TLS, TLS_PEER_VERIFY, &peer_verify, sizeof(peer_verify));
-        if (hostname != NULL) {
-            setsockopt(socket->ctx, SOL_TLS, TLS_HOSTNAME, hostname, strlen(hostname));
-        }
-    }
-    #endif
     return MP_OBJ_FROM_PTR(socket);
 }
+
+#if CONFIG_NET_SOCKETS_OFFLOAD
+STATIC mp_obj_t socket_tlswrap(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kwargs) {
+    enum { ARG_sec_tag, ARG_verify, ARG_hostname };
+    
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_sec_tag, MP_ARG_REQUIRED | MP_ARG_INT },
+        { MP_QSTR_verify, MP_ARG_INT, {.u_int = TLS_PEER_VERIFY_REQUIRED} },
+        { MP_QSTR_hostname, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+    };
+
+    // parse args
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kwargs, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    socket_obj_t *socket = pos_args[0];
+    sec_tag_t sec_tag = args[ARG_sec_tag].u_int;
+    setsockopt(socket->ctx, SOL_TLS, TLS_SEC_TAG_LIST, &sec_tag, sizeof(sec_tag));
+    int verify = args[ARG_verify].u_int;
+    setsockopt(socket->ctx, SOL_TLS, TLS_PEER_VERIFY, &verify, sizeof(verify));
+   
+    if (args[ARG_hostname].u_obj != mp_const_none) {
+        const char *hostname = mp_obj_str_get_str(args[ARG_hostname].u_obj);
+        setsockopt(socket->ctx, SOL_TLS, TLS_HOSTNAME, hostname, strlen(hostname));
+    }
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_KW(socket_tlswrap_obj, 1, socket_tlswrap);
+#endif
 
 STATIC mp_obj_t socket_bind(mp_obj_t self_in, mp_obj_t addr_in) {
     socket_obj_t *socket = self_in;
@@ -385,6 +380,22 @@ STATIC mp_uint_t sock_ioctl(mp_obj_t o_in, mp_uint_t request, uintptr_t arg, int
     }
 }
 
+#if CONFIG_PDN
+STATIC mp_obj_t socket_pdn(mp_obj_t self_in, mp_obj_t id) {
+    if (!mp_obj_is_int(id)) {
+        mp_raise_TypeError(MP_ERROR_TEXT("ID must be an integer"));
+    }
+    socket_obj_t *socket = self_in;
+    int pdn_id = mp_obj_get_int(id);
+    int ret = setsockopt(socket->ctx, SOL_SOCKET, SO_BINDTOPDN, &pdn_id, sizeof(pdn_id));
+    if (ret) {
+        mp_raise_OSError(ret);
+    }
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(socket_pdn_obj, socket_pdn);
+#endif
+
 STATIC const mp_rom_map_elem_t socket_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&mp_stream_close_obj) },
     { MP_ROM_QSTR(MP_QSTR_close), MP_ROM_PTR(&mp_stream_close_obj) },
@@ -402,6 +413,12 @@ STATIC const mp_rom_map_elem_t socket_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_readline), MP_ROM_PTR(&mp_stream_unbuffered_readline_obj) },
     { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&mp_stream_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_makefile), MP_ROM_PTR(&socket_makefile_obj) },
+    #if CONFIG_NET_SOCKETS_OFFLOAD
+    { MP_ROM_QSTR(MP_QSTR_tlswrap), MP_ROM_PTR(&socket_tlswrap_obj) },
+    #if CONFIG_PDN
+    { MP_ROM_QSTR(MP_QSTR_pdn), MP_ROM_PTR(&socket_pdn_obj) },
+    #endif
+    #endif
 };
 STATIC MP_DEFINE_CONST_DICT(socket_locals_dict, socket_locals_dict_table);
 
@@ -532,6 +549,7 @@ STATIC const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
     // class constants
     { MP_ROM_QSTR(MP_QSTR_AF_INET), MP_ROM_INT(AF_INET) },
     { MP_ROM_QSTR(MP_QSTR_AF_INET6), MP_ROM_INT(AF_INET6) },
+    { MP_ROM_QSTR(MP_QSTR_AF_PACKET), MP_ROM_INT(AF_PACKET) },
 
     { MP_ROM_QSTR(MP_QSTR_SOCK_STREAM), MP_ROM_INT(SOCK_STREAM) },
     { MP_ROM_QSTR(MP_QSTR_SOCK_DGRAM), MP_ROM_INT(SOCK_DGRAM) },

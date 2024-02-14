@@ -69,6 +69,10 @@ MP_DECLARE_CONST_FUN_OBJ_0(zephyr_network_initialize_obj);
 #define LTE_MODE_GPS    4
 #define LTE_PLMN_PREF   4
 
+#ifdef CONFIG_PDN
+#include <modem/pdn.h>
+#endif
+
 #endif // MICROPY_PY_NETWORK_NRF91
 
 void usocket_events_deinit(void);
