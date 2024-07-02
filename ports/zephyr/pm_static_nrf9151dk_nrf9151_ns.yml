@@ -1,0 +1,4 @@
+mp_filesystem:
+  region: external_flash
+  address: 0x0
+  size: 0x400000

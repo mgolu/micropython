@@ -1,11 +1,11 @@
+
 / {
 	chosen {
-		nordic,pm-ext-flash = &mx25r64;
-		micropython,skip-main = &button1;
+		nordic,pm-ext-flash = &gd25wb256;
 	};
 };
 
-&mx25r64 {
+&gd25wb256 {
 	status = "okay";
 };
 

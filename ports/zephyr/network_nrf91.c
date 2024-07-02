@@ -302,10 +302,6 @@ STATIC mp_obj_t network_cell_make_new(const mp_obj_type_t *type, size_t n_args, 
     // The LC library doesn't re-register the same handler, so we can safely call it 
     // multiple times. Init can also be called again and will return 0
     lte_lc_register_handler(lte_handler);
-    ret = lte_lc_init();   // TODO: This call will be deprecated (already is in main)
-    if (ret) {
-        mp_raise_OSError(ret);
-    }
     return MP_OBJ_FROM_PTR(&cell_if);
 }
 
@@ -440,6 +436,7 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         CHECK_RET(lte_lc_system_mode_set(mode, preference));
                         break;
                     }
+                    case MP_QSTR_edrx_params:
                     case MP_QSTR_edrx: {
                         if (!mp_obj_is_type(kwargs->table[i].value, &mp_type_tuple)) {
                             mp_raise_ValueError("Parameters must be a tuple");
@@ -471,6 +468,7 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         CHECK_RET(lte_lc_edrx_req(mp_obj_is_true(kwargs->table[i].value)));
                         break;
                     }
+                    case MP_QSTR_psm:
                     case MP_QSTR_psm_params: {
                         if (!mp_obj_is_type(kwargs->table[i].value, &mp_type_tuple)) {
                             mp_raise_ValueError("Parameters must be a tuple");
@@ -494,6 +492,9 @@ STATIC mp_obj_t network_cell_config(size_t n_args, const mp_obj_t *args, mp_map_
                         CHECK_RET(lte_lc_psm_req(mp_obj_is_true(kwargs->table[i].value)));
                         break;
                     }
+                    default:
+                        mp_raise_ValueError("Parameter is not recognized");
+                        break;
                 }
             }
         }

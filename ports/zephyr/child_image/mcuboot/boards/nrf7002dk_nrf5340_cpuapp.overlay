@@ -2,5 +2,6 @@
  / {
 	chosen {
 		nordic,pm-ext-flash = &mx25r64;
+		zephyr,console = &cdc_acm_uart0;
 	};
 };
