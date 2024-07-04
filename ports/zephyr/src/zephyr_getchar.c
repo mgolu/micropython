@@ -55,14 +55,23 @@ static int console_irq_input_hook(uint8_t ch) {
 }
 
 uint8_t zephyr_getchar(void) {
-    mp_hal_wait_sem(&uart_sem, -1);
-    k_sem_take(&uart_sem, K_FOREVER);
+    uint8_t c;
+
+    while (zephyr_getchar_timeout(-1, &c) != 0) { }
+    return c;
+}
+
+int zephyr_getchar_timeout(uint32_t timeout, uint8_t *c) {
+    mp_hal_wait_sem(&uart_sem, timeout);
+    if (k_sem_take(&uart_sem, K_NO_WAIT) != 0) {
+        return -ENODEV;
+    }
     unsigned int key = irq_lock();
-    uint8_t c = uart_ringbuf[i_get++];
+    *c = uart_ringbuf[i_get++];
     i_get &= UART_BUFSIZE - 1;
     i_size--;
     irq_unlock(key);
-    return c;
+    return 0;
 }
 
 void zephyr_getchar_init(void) {

@@ -18,3 +18,4 @@
 
 void zephyr_getchar_init(void);
 uint8_t zephyr_getchar(void);
+int zephyr_getchar_timeout(uint32_t timeout, uint8_t *c);

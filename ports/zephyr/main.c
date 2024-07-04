@@ -56,6 +56,8 @@
 #if MICROPY_VFS
 #include "extmod/vfs.h"
 #include "extmod/vfs_lfs.h"
+#include "py/stream.h"
+#include "src/zephyr_getchar.h"
 #endif
 
 #include "modmachine.h"
@@ -106,9 +108,41 @@ STATIC void vfs_init(void) {
             mp_convert_member_lookup(MP_OBJ_NULL, &mp_type_vfs_lfs2, elem->value, mkfs);
             mkfs[2] = bdev;
             mp_call_method_n_kw(1, 0, mkfs);
-            mp_vfs_mount_and_chdir_protected(bdev, mount_point);
+            ret = mp_vfs_mount_and_chdir_protected(bdev, mount_point);
         #endif
         }
+        if (ret != 0) {
+            return;
+        }
+        nlr_buf_t nlr;
+        mp_obj_t path = mp_obj_new_str("settings", strlen("settings"));
+        if (nlr_push(&nlr) == 0) {
+            mp_vfs_stat(path);
+            nlr_pop();
+        } else {
+            // Assume error is ENOENT and create the directory
+            // TODO: check the actual error
+            printk("Settings directory doesn't exist, create it\n");
+            mp_vfs_mkdir(path);
+        }
+        mp_vfs_chdir(path);
+        mp_obj_t filename = mp_obj_new_str("start_delay", strlen("start_delay"));
+        if (nlr_push(&nlr) == 0) {
+            mp_vfs_stat(filename);
+            nlr_pop();
+        } else {
+            // Assume error is ENOENT and create the file
+            // TODO: check the actual error
+            printk("Creating settings delay file\n");
+            mp_obj_t args[2] = {
+                filename,
+                MP_OBJ_NEW_QSTR(MP_QSTR_wb),
+            };
+            mp_obj_t file = mp_vfs_open(MP_ARRAY_SIZE(args), &args[0], (mp_map_t *)&mp_const_empty_map);
+            mp_stream_write_exactly(file, "2", 1, &ret);
+            mp_stream_close(file);
+        }
+        mp_vfs_chdir(mount_point);
     }
 }
 #endif // MICROPY_VFS
@@ -155,13 +189,46 @@ soft_reset:
     if (gpio_pin_get_dt(&button) == 1) {
         goto skip_main;
     }
-    #endif
-    pyexec_file_if_exists("main.py");
-    #endif
+    #endif // DT_HAS_CHOSEN(micropython_skip_main)
+    #if MICROPY_VFS && !CONFIG_CONSOLE_SUBSYS
+    nlr_buf_t nlr;
+    mp_obj_t filename = mp_obj_new_str("/flash/settings/start_delay", strlen("/flash/settings/start_delay"));
+    if (nlr_push(&nlr) == 0) {
+        mp_vfs_stat(filename);
+        nlr_pop();
+    } else {
+        /* There is no start_delay settings file */
+        goto start_main;
+    }
+    mp_obj_t args[2] = {
+        filename,
+        MP_OBJ_NEW_QSTR(MP_QSTR_rb),
+    };
+    mp_obj_t file = mp_vfs_open(MP_ARRAY_SIZE(args), &args[0], (mp_map_t *)&mp_const_empty_map);
+    uint8_t buf[3]; /* Limits delay to 99 seconds */
+    int ret;
+    int len = mp_stream_read_exactly(file, &buf[0], sizeof(buf) - 1, &ret);
+    mp_stream_close(file);
+    buf[len] = '\0';
 
-#if DT_HAS_CHOSEN(micropython_skip_main)
-skip_main:
-#endif
+    uint32_t delay;
+    ret = sscanf(buf, "%u", &delay);
+    if (ret != 1) {
+        /* Didn't find just an unsigned int */
+        goto start_main;
+    }
+    printk("Press a key in the next %u seconds to stop main.py execution\n", delay);
+    if (zephyr_getchar_timeout(delay * 1000, (uint8_t *)&ret) == 0) {
+    /* Received a character. Skip main */
+        goto skip_main;
+    }
+
+    start_main:
+    #endif  // MICROPY_VFS && !CONFIG_CONSOLE_SUBSYS
+    pyexec_file_if_exists("main.py");
+    skip_main:
+    #endif  // MICROPY_MODULE_FROZEN || MICROPY_VFS
+
     for (;;) {
         if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
             if (pyexec_raw_repl() != 0) {
