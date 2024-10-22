@@ -72,6 +72,8 @@
 
 static char heap[MICROPY_HEAP_SIZE];
 
+void exec_main_py(void);
+
 #if MICROPY_VFS
 STATIC void vfs_init(void) {
     mp_obj_t bdev = NULL;
@@ -175,59 +177,7 @@ soft_reset:
     vfs_init();
     #endif
 
-    #if MICROPY_MODULE_FROZEN || MICROPY_VFS
-    #if DT_HAS_CHOSEN(micropython_skip_main)
-    static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_CHOSEN(micropython_skip_main), gpios);
-    if (!device_is_ready(button.port)) {
-        printk("Main skip button device is not ready\n");
-        goto skip_main;
-    }
-    if (gpio_pin_configure_dt(&button, GPIO_INPUT)) {
-        printk("Failed to initialize button\n");
-        goto skip_main;
-    }
-    if (gpio_pin_get_dt(&button) == 1) {
-        goto skip_main;
-    }
-    #endif // DT_HAS_CHOSEN(micropython_skip_main)
-    #if MICROPY_VFS && !CONFIG_CONSOLE_SUBSYS
-    nlr_buf_t nlr;
-    mp_obj_t filename = mp_obj_new_str("/flash/settings/start_delay", strlen("/flash/settings/start_delay"));
-    if (nlr_push(&nlr) == 0) {
-        mp_vfs_stat(filename);
-        nlr_pop();
-    } else {
-        /* There is no start_delay settings file */
-        goto start_main;
-    }
-    mp_obj_t args[2] = {
-        filename,
-        MP_OBJ_NEW_QSTR(MP_QSTR_rb),
-    };
-    mp_obj_t file = mp_vfs_open(MP_ARRAY_SIZE(args), &args[0], (mp_map_t *)&mp_const_empty_map);
-    uint8_t buf[3]; /* Limits delay to 99 seconds */
-    int ret;
-    int len = mp_stream_read_exactly(file, &buf[0], sizeof(buf) - 1, &ret);
-    mp_stream_close(file);
-    buf[len] = '\0';
-
-    uint32_t delay;
-    ret = sscanf(buf, "%u", &delay);
-    if (ret != 1) {
-        /* Didn't find just an unsigned int */
-        goto start_main;
-    }
-    printk("Press a key in the next %u seconds to stop main.py execution\n", delay);
-    if (zephyr_getchar_timeout(delay * 1000, (uint8_t *)&ret) == 0) {
-    /* Received a character. Skip main */
-        goto skip_main;
-    }
-
-    start_main:
-    #endif  // MICROPY_VFS && !CONFIG_CONSOLE_SUBSYS
-    pyexec_file_if_exists("main.py");
-    skip_main:
-    #endif  // MICROPY_MODULE_FROZEN || MICROPY_VFS
+    exec_main_py();
 
     for (;;) {
         if (pyexec_mode_kind == PYEXEC_MODE_RAW_REPL) {
@@ -293,3 +243,62 @@ void MP_WEAK __assert_func(const char *file, int line, const char *func, const c
     __fatal_error("Assertion failed");
 }
 #endif
+
+void exec_main_py(void) {
+    /* Execute main.py if it exists. First check if there is a button press or delay for
+     * a UART input to stop main.py execution and jump to REPL (e.g. for recovery)
+     */
+    #if MICROPY_MODULE_FROZEN || MICROPY_VFS
+    #if DT_HAS_CHOSEN(micropython_skip_main)
+    static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_CHOSEN(micropython_skip_main), gpios);
+    if (!device_is_ready(button.port)) {
+        printk("Main skip button device is not ready\n");
+        goto skip_main;
+    }
+    if (gpio_pin_configure_dt(&button, GPIO_INPUT)) {
+        printk("Failed to initialize button\n");
+        goto skip_main;
+    }
+    if (gpio_pin_get_dt(&button) == 1) {
+        goto skip_main;
+    }
+    #endif // DT_HAS_CHOSEN(micropython_skip_main)
+    #if MICROPY_VFS && !CONFIG_CONSOLE_SUBSYS
+    nlr_buf_t nlr;
+    mp_obj_t filename = mp_obj_new_str("/flash/settings/start_delay", strlen("/flash/settings/start_delay"));
+    if (nlr_push(&nlr) == 0) {
+        mp_vfs_stat(filename);
+        nlr_pop();
+    } else {
+        /* There is no start_delay settings file */
+        goto start_main;
+    }
+    mp_obj_t args[2] = {
+        filename,
+        MP_OBJ_NEW_QSTR(MP_QSTR_rb),
+    };
+    mp_obj_t file = mp_vfs_open(MP_ARRAY_SIZE(args), &args[0], (mp_map_t *)&mp_const_empty_map);
+    uint8_t buf[3]; /* Limits delay to 99 seconds */
+    int ret;
+    int len = mp_stream_read_exactly(file, &buf[0], sizeof(buf) - 1, &ret);
+    mp_stream_close(file);
+    buf[len] = '\0';
+
+    uint32_t delay;
+    ret = sscanf(buf, "%u", &delay);
+    if (ret != 1) {
+        /* Didn't find just an unsigned int */
+        goto start_main;
+    }
+    printk("Press a key in the next %u seconds to stop main.py execution\n", delay);
+    if (zephyr_getchar_timeout(delay * 1000, (uint8_t *)&ret) == 0) {
+    /* Received a character. Skip main */
+        goto skip_main;
+    }
+
+    start_main:
+    #endif  // MICROPY_VFS && !CONFIG_CONSOLE_SUBSYS
+    pyexec_file_if_exists("main.py");
+    skip_main:
+    #endif  // MICROPY_MODULE_FROZEN || MICROPY_VFS
+}
