@@ -26,7 +26,7 @@
  */
 
 #include "py/mpconfig.h"
-#ifdef CONFIG_NET_SOCKETS
+#if (CONFIG_NET_SOCKETS && !CONFIG_EXCLUDE_PY_SOCKETS)
 
 #include "py/runtime.h"
 #include "py/stream.h"
@@ -579,4 +579,4 @@ const mp_obj_module_t mp_module_socket = {
 
 MP_REGISTER_EXTENSIBLE_MODULE(MP_QSTR_socket, mp_module_socket);
 
-#endif // CONFIG_NET_SOCKETS
+#endif // (CONFIG_NET_SOCKETS && !CONFIG_EXCLUDE_PY_SOCKETS)

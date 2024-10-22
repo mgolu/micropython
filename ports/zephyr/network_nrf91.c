@@ -83,70 +83,68 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(cell_invoke_irq_obj, cell_invoke_irq);
 
 static void lte_handler(const struct lte_lc_evt *const evt)
 {
-    if (irq_handler != mp_const_none && irq_mask != 0) {
-        mp_obj_t tuple[2] = { 0, 0 };
-        switch (evt->type) {
-        case LTE_LC_EVT_NW_REG_STATUS:
-            if (irq_mask & MP_CELL_IRQ_NW_REG_STATUS) {
-                tuple[0] = mp_obj_new_int(MP_CELL_IRQ_NW_REG_STATUS);
-                tuple[1] = MP_OBJ_NEW_SMALL_INT(evt->nw_reg_status);
-            }
-            break;
-        case LTE_LC_EVT_PSM_UPDATE:
-        {
-            if (irq_mask & MP_CELL_IRQ_PSM_UPDATE) {
-            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_PSM_UPDATE);
+    mp_obj_t tuple[2] = { 0, 0 };
+    switch (evt->type) {
+    case LTE_LC_EVT_NW_REG_STATUS:
+        if (irq_mask & MP_CELL_IRQ_NW_REG_STATUS) {
+            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_NW_REG_STATUS);
+            tuple[1] = MP_OBJ_NEW_SMALL_INT(evt->nw_reg_status);
+        }
+        break;
+    case LTE_LC_EVT_PSM_UPDATE:
+    {
+        if (irq_mask & MP_CELL_IRQ_PSM_UPDATE) {
+        tuple[0] = mp_obj_new_int(MP_CELL_IRQ_PSM_UPDATE);
+        mp_obj_t params[2] = {
+            mp_obj_new_int(evt->psm_cfg.tau), 
+            mp_obj_new_int(evt->psm_cfg.active_time),
+        };
+        tuple[1] = mp_obj_new_tuple(2, params);
+        }
+        break;
+    }
+    case LTE_LC_EVT_EDRX_UPDATE:
+    {
+        if (irq_mask & MP_CELL_IRQ_EDRX_UPDATE) {
+            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_EDRX_UPDATE);
             mp_obj_t params[2] = {
-                mp_obj_new_int(evt->psm_cfg.tau), 
-                mp_obj_new_int(evt->psm_cfg.active_time),
+                mp_obj_new_float(evt->edrx_cfg.edrx),
+                mp_obj_new_float(evt->edrx_cfg.ptw),
             };
             tuple[1] = mp_obj_new_tuple(2, params);
-            }
-            break;
         }
-        case LTE_LC_EVT_EDRX_UPDATE:
-        {
-            if (irq_mask & MP_CELL_IRQ_EDRX_UPDATE) {
-                tuple[0] = mp_obj_new_int(MP_CELL_IRQ_EDRX_UPDATE);
-                mp_obj_t params[2] = {
-                    mp_obj_new_float(evt->edrx_cfg.edrx),
-                    mp_obj_new_float(evt->edrx_cfg.ptw),
-                };
-                tuple[1] = mp_obj_new_tuple(2, params);
-            }
-            break;
+        break;
+    }
+    case LTE_LC_EVT_RRC_UPDATE:
+        if (irq_mask & MP_CELL_IRQ_RRC_UPDATE) {
+            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_RRC_UPDATE);
+            tuple[1] = mp_obj_new_bool(evt->rrc_mode);
         }
-        case LTE_LC_EVT_RRC_UPDATE:
-            if (irq_mask & MP_CELL_IRQ_RRC_UPDATE) {
-                tuple[0] = mp_obj_new_int(MP_CELL_IRQ_RRC_UPDATE);
-                tuple[1] = mp_obj_new_bool(evt->rrc_mode);
-            }
-            break;
-        case LTE_LC_EVT_CELL_UPDATE:
-        {
-            if (irq_mask & MP_CELL_IRQ_CELL_UPDATE) {
-                tuple[0] = mp_obj_new_int(MP_CELL_IRQ_CELL_UPDATE);
-                mp_obj_t params[2] = {
-                    mp_obj_new_int(evt->cell.id), 
-                    mp_obj_new_int(evt->cell.tac),
-                };
-                tuple[1] = mp_obj_new_tuple(2, params);
-            }
-            break;
+        break;
+    case LTE_LC_EVT_CELL_UPDATE:
+    {
+        if (irq_mask & MP_CELL_IRQ_CELL_UPDATE) {
+            tuple[0] = mp_obj_new_int(MP_CELL_IRQ_CELL_UPDATE);
+            mp_obj_t params[2] = {
+                mp_obj_new_int(evt->cell.id), 
+                mp_obj_new_int(evt->cell.tac),
+            };
+            tuple[1] = mp_obj_new_tuple(2, params);
         }
-        case LTE_LC_EVT_LTE_MODE_UPDATE:
-            LOG_INF("LTE mode update %d", evt->lte_mode);
-            break;
-        default:
-            LOG_DBG("Other LTE event: %d", evt->type);
-            break;
-        }
-        if (tuple[0] != 0) {
-            mp_sched_schedule(MP_OBJ_FROM_PTR(&cell_invoke_irq_obj), mp_obj_new_tuple(2, tuple));
-        }
+        break;
+    }
+    case LTE_LC_EVT_LTE_MODE_UPDATE:
+        LOG_INF("LTE mode update %d", evt->lte_mode);
+        break;
+    default:
+        LOG_DBG("Other LTE event: %d", evt->type);
+        break;
+    }
+    if ( (irq_handler != mp_const_none) && (tuple[0] != 0) ) {
+        mp_sched_schedule(MP_OBJ_FROM_PTR(&cell_invoke_irq_obj), mp_obj_new_tuple(2, tuple));
     }
 }
-#ifdef CONFIG_LOCATION
+#ifdef CONFIG_MICROPY_NRF91_LOCATION
 static void get_requested_data_types(mp_obj_t list, struct nrf_modem_gnss_agnss_data_frame request)
 {
     for(int i = 0; i < request.system_count; ++i) {
@@ -284,7 +282,7 @@ static void location_event_handler(const struct location_event_data *event_data)
 		break;
 	}
 }
-#endif
+#endif // CONFIG_MICROPY_NRF91_LOCATION
 
 STATIC mp_obj_t network_cell_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     mp_arg_check_num(n_args, n_kw, 0, 1, false);
@@ -296,7 +294,7 @@ STATIC mp_obj_t network_cell_make_new(const mp_obj_type_t *type, size_t n_args, 
 			mp_raise_OSError(ret);
 		}
 	}
-#ifdef CONFIG_LOCATION
+#ifdef CONFIG_MICROPY_NRF91_LOCATION
     location_init(location_event_handler);
 #endif
     // The LC library doesn't re-register the same handler, so we can safely call it 
@@ -311,6 +309,20 @@ STATIC mp_obj_t network_cell_connect(mp_obj_t self_in) {
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_connect_obj, network_cell_connect);
+
+STATIC mp_obj_t network_cell_flight_mode(mp_obj_t self_in) {
+    int ret;
+    CHECK_RET(lte_lc_offline());
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_flight_mode_obj, network_cell_flight_mode);
+
+STATIC mp_obj_t network_cell_off(mp_obj_t self_in) {
+    int ret;
+    CHECK_RET(lte_lc_power_off());
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_off_obj, network_cell_off);
 
 STATIC mp_obj_t network_cell_isconnected(mp_obj_t self_in) {
     enum lte_lc_nw_reg_status reg_status;
@@ -342,7 +354,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_isconnected_obj, network_cell_isco
  * 
  */
 static uint8_t edrx_cycle_encoded[8] = {2, 3, 5, 9, 10, 11, 12, 13};
-static uint8_t get_cycle_value(float seconds) {
+static uint8_t get_cycle_value(double seconds) {
     if (seconds <= 20.48) {
         return edrx_cycle_encoded[0];
     }
@@ -359,8 +371,8 @@ static uint8_t get_cycle_value(float seconds) {
  * Code     0000    0001    0010    0011    0100    0101    0110    0111    1000    1001    1010    1011    1100    1101    1110    1111
  */
 
-static uint8_t get_lte_ptw(float seconds, bool nbiot) {
-    float divisor = nbiot ? 2.56 : 1.28;
+static uint8_t get_lte_ptw(double seconds, bool nbiot) {
+    double divisor = nbiot ? 2.56 : 1.28;
     if (seconds <= divisor) {
         return 0;
     }
@@ -775,7 +787,7 @@ STATIC mp_obj_t network_cell_cert(size_t n_args, const mp_obj_t *args, mp_map_t 
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(network_cell_cert_obj, 2, network_cell_cert);
 
-#ifdef CONFIG_LOCATION
+#ifdef CONFIG_MICROPY_NRF91_LOCATION
 static int find_method_index(struct location_config *config, enum location_method method) {
     for (int i = 0; i < CONFIG_LOCATION_METHODS_LIST_SIZE; i++) {
         if (config->methods[i].method == method) {
@@ -919,7 +931,7 @@ STATIC mp_obj_t network_cell_location_cloud_fix(size_t n_args, const mp_obj_t *a
     return mp_const_none;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(network_cell_location_cloud_fix_obj, 4, 4, network_cell_location_cloud_fix);
-#endif // CONFIG_LOCATION
+#endif // CONFIG_MICROPY_NRF91_LOCATION
 
 #ifdef CONFIG_PDN
 STATIC mp_obj_t network_cell_pdn_id(mp_obj_t self_in, mp_obj_t cid) {
@@ -1022,6 +1034,8 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(network_cell_pdn_default_apn_obj, network_cell_
 
 STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_connect), MP_ROM_PTR(&network_cell_connect_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flight_mode), MP_ROM_PTR(&network_cell_flight_mode_obj) },
+    { MP_ROM_QSTR(MP_QSTR_off), MP_ROM_PTR(&network_cell_off_obj) },
     { MP_ROM_QSTR(MP_QSTR_isconnected), MP_ROM_PTR(&network_cell_isconnected_obj) },
     { MP_ROM_QSTR(MP_QSTR_config), MP_ROM_PTR(&network_cell_config_obj) },
     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&network_cell_status_obj) },
@@ -1029,7 +1043,7 @@ STATIC const mp_rom_map_elem_t cell_if_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&network_cell_irq_obj) },
 // Certificate management
     { MP_ROM_QSTR(MP_QSTR_cert), MP_ROM_PTR(&network_cell_cert_obj) },
-    #ifdef CONFIG_LOCATION
+    #ifdef CONFIG_MICROPY_NRF91_LOCATION
     { MP_ROM_QSTR(MP_QSTR_location), MP_ROM_PTR(&network_cell_location_obj) },
     { MP_ROM_QSTR(MP_QSTR_location_cancel), MP_ROM_PTR(&network_cell_location_cancel_obj) },
     { MP_ROM_QSTR(MP_QSTR_agnss_data), MP_ROM_PTR(&network_cell_agnss_data_process_obj) },

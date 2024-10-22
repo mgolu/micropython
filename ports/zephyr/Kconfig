@@ -41,6 +41,22 @@ config MICROPY_VFS_LFS1
 config MICROPY_VFS_LFS2
 	bool "LittleFs version 2 file system"
 
+config MICROPY_NRF91_LOCATION
+	bool "Include nRF91 Location services"
+	default n
+	imply LOCATION
+	imply LOCATION_METHOD_GNSS
+	imply LOCATION_METHOD_CELLULAR
+	imply LOCATION_DATA_DETAILS
+	imply LOCATION_SERVICE_EXTERNAL
+	imply NRF_CLOUD_AGNSS
+	imply MODEM_INFO
+	imply MODEM_INFO_ADD_NETWORK
+
+config EXCLUDE_PY_SOCKETS
+	bool "Don't include socket module"
+	default n
+
 endmenu # MicroPython Options
 
 source "Kconfig.zephyr"
